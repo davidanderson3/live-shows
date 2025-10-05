@@ -7,6 +7,19 @@ let initialized = false;
 let mapInstance = null;
 let mapMarkersLayer = null;
 
+function parseCoordinate(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : NaN;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return NaN;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
+}
+
 function ensureMap() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return null;
   if (typeof window.L === 'undefined') return null;
@@ -201,8 +214,8 @@ function createActions(rest) {
     actions.appendChild(websiteLink);
   }
 
-  const lat = typeof rest.latitude === 'number' ? rest.latitude : Number(rest.latitude);
-  const lng = typeof rest.longitude === 'number' ? rest.longitude : Number(rest.longitude);
+  const lat = parseCoordinate(rest.latitude);
+  const lng = parseCoordinate(rest.longitude);
   let directionsHref = '';
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
     directionsHref = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -246,8 +259,8 @@ function updateMap(items = []) {
 
   const bounds = [];
   items.forEach(rest => {
-    const lat = typeof rest.latitude === 'number' ? rest.latitude : Number(rest.latitude);
-    const lng = typeof rest.longitude === 'number' ? rest.longitude : Number(rest.longitude);
+    const lat = parseCoordinate(rest.latitude);
+    const lng = parseCoordinate(rest.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
     const marker = window.L.marker([lat, lng]);
