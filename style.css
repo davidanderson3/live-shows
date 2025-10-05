@@ -802,6 +802,12 @@ button:hover {
   font-weight: 600;
 }
 
+#spotifyStatus,
+.shows-spotify-status {
+  font-size: 0.85rem;
+  color: #5f6368;
+}
+
 
 .goal-drop-indicator {
   outline: 2px dashed #ccc;

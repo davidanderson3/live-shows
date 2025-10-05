@@ -442,15 +442,21 @@ export async function initShowsPanel() {
     const storedToken =
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
     if (storedToken) {
-      if (tokenBtn) tokenBtn.textContent = 'Logged in';
-      if (statusEl) statusEl.textContent = 'Logged in';
+      if (tokenBtn) tokenBtn.textContent = 'Login to Spotify';
+      if (statusEl) {
+        statusEl.textContent = 'Signed in to Spotify';
+        statusEl.classList.add('shows-spotify-status');
+      }
       if (tokenInput) {
         tokenInput.disabled = true;
         tokenInput.style.display = 'none';
       }
     } else {
       if (tokenBtn) tokenBtn.textContent = 'Login to Spotify';
-      if (statusEl) statusEl.textContent = '';
+      if (statusEl) {
+        statusEl.textContent = '';
+        statusEl.classList.remove('shows-spotify-status');
+      }
       if (tokenInput) {
         tokenInput.disabled = false;
         tokenInput.style.display = '';
