@@ -87,7 +87,16 @@
             <input type="password" id="spotifyToken" placeholder="Spotify Access Token" style="margin-right:.5rem;">
             <input type="password" id="ticketmasterApiKey" placeholder="Ticketmaster API Key" style="margin-right:.5rem;">
           </div>
-      <div id="ticketmasterList" class="decision-container"></div>
+          <div id="showsTabs" class="movie-tabs">
+            <button type="button" class="movie-tab shows-tab active" data-target="showsFeedSection">Discover</button>
+            <button type="button" class="movie-tab shows-tab" data-target="showsInterestedSection">Your Live Music Events</button>
+          </div>
+          <div id="showsFeedSection">
+            <div id="ticketmasterList" class="decision-container"></div>
+          </div>
+          <div id="showsInterestedSection" style="display:none;">
+            <div id="ticketmasterInterestedList" class="decision-container"></div>
+          </div>
         </div>
       </div>
     <!-- RECIPES PANEL -->

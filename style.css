@@ -2337,13 +2337,15 @@ h2 {
   color: #fff;
 }
 
-.movie-tabs {
+.movie-tabs,
+.shows-tabs {
   display: flex;
   gap: 4px;
   margin-bottom: 8px;
 }
 
-.movie-tab {
+.movie-tab,
+.shows-tab {
   flex: 1 1 0;
   padding: 6px;
   border: 1px solid #ccc;
@@ -2351,7 +2353,8 @@ h2 {
   cursor: pointer;
 }
 
-.movie-tab.active {
+.movie-tab.active,
+.shows-tab.active {
   background: #7aa68c;
   color: #fff;
 }
