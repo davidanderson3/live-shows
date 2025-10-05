@@ -148,7 +148,20 @@ export async function initRecipesPanel() {
       localStorage.setItem('recipesQuery', query);
     } catch (err) {
       console.error('Failed to load recipes', err);
-      listEl.textContent = 'Failed to load recipes.';
+      const instructions = document.createElement('div');
+      instructions.className = 'recipes-error';
+      instructions.innerHTML = `
+        <p>We couldn't reach the recipes service.</p>
+        <p>To fix this locally:</p>
+        <ol>
+          <li>Create a <code>.env</code> file next to <code>backend/server.js</code> with your Spoonacular key, e.g. <code>SPOONACULAR_KEY=your_api_key_here</code>.</li>
+          <li>Restart the server with <code>npm start</code> so <code>/api/spoonacular</code> becomes available.</li>
+          <li>If you rely on a hosted proxy instead, assign its base URL to <code>window.apiBaseUrl</code> before calling <code>initRecipesPanel()</code>.</li>
+        </ol>
+        <p>After updating the configuration, try searching again.</p>
+      `;
+      listEl.innerHTML = '';
+      listEl.appendChild(instructions);
     } finally {
       if (searchBtn) searchBtn.disabled = false;
     }
