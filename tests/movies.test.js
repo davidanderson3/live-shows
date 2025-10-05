@@ -98,7 +98,7 @@ describe('initMoviesPanel', () => {
           title: 'Sample Movie',
           release_date: '2024-01-01',
           vote_average: 7.5,
-          vote_count: 12,
+          vote_count: 120,
           overview: 'An exciting film.',
           genre_ids: [28],
           poster_path: '/poster.jpg'
@@ -116,7 +116,7 @@ describe('initMoviesPanel', () => {
     expect(card).not.toBeNull();
     expect(card.textContent).toContain('Sample Movie');
     expect(card.textContent).toContain('Average Score: 7.5');
-    expect(card.textContent).toContain('Votes: 12');
+    expect(card.textContent).toContain('Votes: 120');
     expect(card.querySelector('.movie-meta')?.textContent).toContain('Genres: Action');
 
     const buttons = Array.from(card.querySelectorAll('button')).map(b => b.textContent);
@@ -124,6 +124,56 @@ describe('initMoviesPanel', () => {
 
     const img = card.querySelector('img');
     expect(img?.src).toContain('https://image.tmdb.org/t/p/w200/poster.jpg');
+  });
+
+  it('filters out movies below rating or vote thresholds', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const page = {
+      results: [
+        {
+          id: 42,
+          title: 'Top Tier',
+          release_date: '2024-02-01',
+          vote_average: 8.5,
+          vote_count: 500,
+          overview: 'Critically acclaimed.',
+          genre_ids: []
+        },
+        {
+          id: 43,
+          title: 'Too Few Votes',
+          release_date: '2024-02-02',
+          vote_average: 8.5,
+          vote_count: 20,
+          overview: 'Not enough data.',
+          genre_ids: []
+        },
+        {
+          id: 44,
+          title: 'Too Low Rating',
+          release_date: '2024-02-03',
+          vote_average: 6.5,
+          vote_count: 600,
+          overview: 'Audience lukewarm.',
+          genre_ids: []
+        }
+      ]
+    };
+    const empty = { results: [] };
+    const genres = { genres: [] };
+
+    configureFetchResponses([page, empty, empty, genres]);
+
+    await initMoviesPanel();
+
+    const movieTitles = Array.from(document.querySelectorAll('#movieList li h3')).map(h => h.textContent);
+    expect(movieTitles).toHaveLength(1);
+    expect(movieTitles[0]).toContain('Top Tier');
+    expect(document.querySelector('#movieList').textContent).not.toContain('Too Few Votes');
+    expect(document.querySelector('#movieList').textContent).not.toContain('Too Low Rating');
   });
 
   it('prioritizes movies using weighted score (75% average, 25% votes)', async () => {
@@ -147,7 +197,7 @@ describe('initMoviesPanel', () => {
           title: 'Low Votes',
           release_date: '2024-06-01',
           vote_average: 8,
-          vote_count: 40,
+          vote_count: 80,
           overview: 'Less popular film.',
           genre_ids: []
         }
@@ -177,7 +227,7 @@ describe('initMoviesPanel', () => {
           title: 'Future Hit',
           release_date: '2024-03-15',
           vote_average: 8.2,
-          vote_count: 44,
+          vote_count: 84,
           overview: 'Must-watch film.',
           genre_ids: [],
           poster_path: '/future.jpg'
@@ -226,8 +276,8 @@ describe('initMoviesPanel', () => {
           id: 7,
           title: 'Stored Key Movie',
           release_date: '2023-12-01',
-          vote_average: 6.1,
-          vote_count: 21,
+          vote_average: 7.2,
+          vote_count: 75,
           overview: 'Stored key data.',
           genre_ids: []
         }
