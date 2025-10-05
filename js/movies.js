@@ -5,6 +5,8 @@ const API_KEY_STORAGE = 'moviesApiKey';
 const DEFAULT_INTEREST = 3;
 const MAX_DISCOVER_PAGES = 3;
 const PREF_COLLECTION = 'moviePreferences';
+const MIN_VOTE_AVERAGE = 7;
+const MIN_VOTE_COUNT = 50;
 
 const DEFAULT_TMDB_PROXY_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
@@ -33,6 +35,14 @@ const handlers = {
   handleKeydown: null,
   handleChange: null
 };
+
+function meetsQualityThreshold(movie) {
+  if (!movie || typeof movie !== 'object') return false;
+  const average = Number(movie.vote_average ?? 0);
+  const votes = Number(movie.vote_count ?? 0);
+  if (!Number.isFinite(average) || !Number.isFinite(votes)) return false;
+  return average >= MIN_VOTE_AVERAGE && votes >= MIN_VOTE_COUNT;
+}
 
 function loadLocalPrefs() {
   if (typeof localStorage === 'undefined') return {};
@@ -442,11 +452,15 @@ function refreshUI() {
 
 function applyPriorityOrdering(movies) {
   if (!Array.isArray(movies) || !movies.length) return movies || [];
-  const maxVotes = Math.max(...movies.map(m => Math.max(0, m.vote_count || 0)), 1);
+
+  const filtered = movies.filter(meetsQualityThreshold);
+  if (!filtered.length) return [];
+
+  const maxVotes = Math.max(...filtered.map(m => Math.max(0, m.vote_count || 0)), 1);
   const now = Date.now();
   const yearMs = 365 * 24 * 60 * 60 * 1000;
 
-  return movies
+  return filtered
     .map(movie => {
       const rawAverage = Math.max(0, Math.min(10, movie.vote_average ?? 0)) / 10;
       const votes = Math.max(0, movie.vote_count || 0);
