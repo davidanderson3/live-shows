@@ -14,7 +14,7 @@
     "generate:geoscore": "node scripts/generateGeoscoreQuestions.js",
     "update:cities": "node scripts/populateCities.js",
     "prepare": "husky install",
-    "start": "node backend/server.js"
+    "start": "PORT=3003 node backend/server.js"
   },
   "keywords": [],
   "author": "",

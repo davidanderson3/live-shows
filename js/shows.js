@@ -40,11 +40,13 @@ export async function initShowsPanel() {
   const apiKeyInput = document.getElementById('ticketmasterApiKey');
 
   let spotifyClientId = '';
+  let serverHasTicketmasterKey = false;
   try {
     const res = await fetch(`${API_BASE_URL}/api/spotify-client-id`);
     if (res.ok) {
       const data = await res.json();
       spotifyClientId = data.clientId || '';
+      serverHasTicketmasterKey = Boolean(data.hasTicketmasterKey);
     }
   } catch (err) {
     console.error('Failed to fetch Spotify client ID', err);
@@ -52,6 +54,10 @@ export async function initShowsPanel() {
   if (!spotifyClientId) {
     listEl.textContent = 'Spotify client ID not configured.';
     return;
+  }
+
+  if (serverHasTicketmasterKey && apiKeyInput) {
+    apiKeyInput.style.display = 'none';
   }
 
   const redirectUri = window.location.origin + window.location.pathname;
@@ -142,19 +148,30 @@ export async function initShowsPanel() {
     const token =
       tokenInput?.value.trim() ||
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
-    const apiKey =
+    const manualApiKey =
       apiKeyInput?.value.trim() ||
       (typeof localStorage !== 'undefined' && localStorage.getItem('ticketmasterApiKey')) || '';
-    if (!token || !apiKey) {
-      listEl.textContent = 'Please enter Spotify token and API key.';
+    const requiresManualApiKey = !serverHasTicketmasterKey;
+
+    if (!token) {
+      listEl.textContent = 'Please login to Spotify.';
       return;
     }
+
     if (tokenInput?.value && typeof localStorage !== 'undefined') {
       localStorage.setItem('spotifyToken', token);
       updateSpotifyStatus();
     }
-    if (apiKeyInput?.value && typeof localStorage !== 'undefined') {
-      localStorage.setItem('ticketmasterApiKey', apiKey);
+
+    if (requiresManualApiKey && !manualApiKey) {
+      listEl.textContent = 'Please enter your Ticketmaster API key.';
+      return;
+    }
+
+    if (requiresManualApiKey && apiKeyInput?.value && typeof localStorage !== 'undefined') {
+      localStorage.setItem('ticketmasterApiKey', manualApiKey);
+    } else if (!requiresManualApiKey && typeof localStorage !== 'undefined') {
+      localStorage.removeItem('ticketmasterApiKey');
     }
     listEl.innerHTML = '<em>Loading...</em>';
     try {
@@ -177,46 +194,47 @@ export async function initShowsPanel() {
         return;
       }
 
-       const ul = document.createElement('ul');
-       for (const artist of artists) {
-        const url =
-          `${API_BASE_URL}/api/ticketmaster?apiKey=${apiKey}&keyword=${encodeURIComponent(
-            artist.name
-          )}`;
-         const res = await fetch(url);
-         if (!res.ok) continue;
-         const data = await res.json();
-         const events = data._embedded?.events;
-         if (!Array.isArray(events)) continue;
-         for (const ev of events) {
-           const li = document.createElement('li');
-           const nameDiv = document.createElement('div');
-           nameDiv.textContent = ev.name || 'Unnamed event';
-           li.appendChild(nameDiv);
-           const venue = ev._embedded?.venues?.[0];
-           const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
-           if (locParts.length > 0) {
-             const locDiv = document.createElement('div');
-             locDiv.textContent = locParts.join(' - ');
-             li.appendChild(locDiv);
-           }
-           const date = ev.dates?.start?.localDate;
-           if (date) {
-             const dateDiv = document.createElement('div');
-             dateDiv.textContent = date;
-             li.appendChild(dateDiv);
-           }
-           if (ev.url) {
-             const link = document.createElement('a');
-             link.href = ev.url;
-             link.target = '_blank';
-             link.rel = 'noopener noreferrer';
-             link.textContent = 'View Event';
-             li.appendChild(link);
-           }
-           ul.appendChild(li);
-         }
-       }
+      const ul = document.createElement('ul');
+      for (const artist of artists) {
+        const tmUrl = new URL(`${API_BASE_URL}/api/ticketmaster`);
+        tmUrl.searchParams.set('keyword', artist.name);
+        if (requiresManualApiKey) {
+          tmUrl.searchParams.set('apiKey', manualApiKey);
+        }
+        const res = await fetch(tmUrl.toString());
+        if (!res.ok) continue;
+        const data = await res.json();
+        const events = data._embedded?.events;
+        if (!Array.isArray(events)) continue;
+        for (const ev of events) {
+          const li = document.createElement('li');
+          const nameDiv = document.createElement('div');
+          nameDiv.textContent = ev.name || 'Unnamed event';
+          li.appendChild(nameDiv);
+          const venue = ev._embedded?.venues?.[0];
+          const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
+          if (locParts.length > 0) {
+            const locDiv = document.createElement('div');
+            locDiv.textContent = locParts.join(' - ');
+            li.appendChild(locDiv);
+          }
+          const date = ev.dates?.start?.localDate;
+          if (date) {
+            const dateDiv = document.createElement('div');
+            dateDiv.textContent = date;
+            li.appendChild(dateDiv);
+          }
+          if (ev.url) {
+            const link = document.createElement('a');
+            link.href = ev.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = 'View Event';
+            li.appendChild(link);
+          }
+          ul.appendChild(li);
+        }
+      }
       listEl.innerHTML = '';
       if (ul.children.length > 0) {
         listEl.appendChild(ul);

@@ -36,7 +36,7 @@ describe('initShowsPanel', () => {
 
   it('fetches Spotify artists and Ticketmaster events', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'The Band' }] }) })
       .mockResolvedValueOnce({
         ok: true,
@@ -55,7 +55,6 @@ describe('initShowsPanel', () => {
       });
 
     localStorage.setItem('spotifyToken', 'token');
-    localStorage.setItem('ticketmasterApiKey', 'key');
     await initShowsPanel();
 
     await flush();
@@ -64,16 +63,15 @@ describe('initShowsPanel', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(document.querySelectorAll('#ticketmasterList li').length).toBe(1);
     expect(fetch.mock.calls[2][0]).toContain('/api/ticketmaster');
-    expect(fetch.mock.calls[2][0]).toContain('apiKey=key');
+    expect(fetch.mock.calls[2][0]).not.toContain('apiKey=');
     expect(document.querySelector('#ticketmasterList li').textContent).toContain('Concert');
   });
 
   it('stores credentials and cached values during OAuth flow', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
       .mockRejectedValue(new Error('fail'));
     localStorage.setItem('spotifyToken', 'tok');
-    localStorage.setItem('ticketmasterApiKey', 'key');
     await initShowsPanel();
     document.getElementById('spotifyTokenBtn').dispatchEvent(new window.Event('click'));
 
@@ -81,7 +79,7 @@ describe('initShowsPanel', () => {
 
     expect(localStorage.getItem('spotifyCodeVerifier')).toBeTruthy();
     expect(localStorage.getItem('spotifyToken')).toBe('tok');
-    expect(localStorage.getItem('ticketmasterApiKey')).toBe('key');
+    expect(localStorage.getItem('ticketmasterApiKey')).toBeFalsy();
   });
 
   it('exchanges authorization code for token', async () => {
@@ -96,17 +94,34 @@ describe('initShowsPanel', () => {
     global.document = dom.window.document;
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'newTok' }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'newTok' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) });
     localStorage.setItem('spotifyCodeVerifier', 'ver');
     ({ initShowsPanel } = await import('../js/shows.js'));
 
     await initShowsPanel();
     await flush();
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(localStorage.getItem('spotifyToken')).toBe('newTok');
     expect(document.getElementById('spotifyToken').value).toBe('');
   });
-});
 
+  it('falls back to manual Ticketmaster key input when server does not provide one', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: false }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+
+    localStorage.setItem('spotifyToken', 'token');
+    const input = document.getElementById('ticketmasterApiKey');
+    input.value = 'manualKey';
+
+    await initShowsPanel();
+    await flush();
+    await flush();
+
+    expect(fetch.mock.calls[2][0]).toContain('apiKey=manualKey');
+  });
+});

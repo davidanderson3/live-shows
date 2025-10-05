@@ -215,9 +215,10 @@ describe('initMoviesPanel', () => {
     expect(stored['2'].interest).toBe(5);
   });
 
-  it('persists API key and restores it from storage', async () => {
+  it('routes movie requests through the Cloud Function proxy', async () => {
     const dom = buildDom();
     attachWindow(dom);
+    window.tmdbProxyEndpoint = 'https://mock-functions.net/tmdbProxy';
 
     const page = {
       results: [
@@ -238,17 +239,13 @@ describe('initMoviesPanel', () => {
     configureFetchResponses([page, empty, empty, genres]);
 
     await initMoviesPanel();
-
-    const input = document.getElementById('moviesApiKey');
-    input.value = 'INPUT_KEY';
-    input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-    // allow async change handler to complete
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    expect(global.localStorage.getItem('moviesApiKey')).toBe('INPUT_KEY');
     const calledUrls = fetch.mock.calls.map(args => args[0]);
-    expect(calledUrls.some(url => url.includes('api_key=INPUT_KEY&sort_by=popularity.desc'))).toBe(true);
+    expect(calledUrls.length).toBeGreaterThan(0);
+    expect(calledUrls.every(url => String(url).startsWith('https://mock-functions.net/tmdbProxy'))).toBe(true);
+    expect(calledUrls.some(url => String(url).includes('endpoint=discover'))).toBe(true);
+    expect(calledUrls.some(url => String(url).includes('endpoint=genres'))).toBe(true);
+    expect(calledUrls.some(url => String(url).includes('api_key='))).toBe(false);
+    expect(global.localStorage.getItem('moviesApiKey')).toBeNull();
   });
 
   it('moves watched movies to the watched list and allows removal', async () => {

@@ -15,8 +15,12 @@ try {
 
 const execFileAsync = util.promisify(execFile);
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = Number(process.env.PORT) || 3003;
 const HOST = process.env.HOST || (process.env.VITEST ? '127.0.0.1' : '0.0.0.0');
+const TICKETMASTER_CONSUMER_KEY =
+  process.env.TICKETMASTER_CONSUMER_KEY || process.env.TICKETMASTER_API_KEY || '';
+const TICKETMASTER_CONSUMER_SECRET = process.env.TICKETMASTER_CONSUMER_SECRET || '';
+const HAS_TICKETMASTER_KEY = Boolean(TICKETMASTER_CONSUMER_KEY);
 
 // Enable CORS for all routes so the frontend can reach the API
 app.use(cors());
@@ -151,7 +155,7 @@ app.get('/api/spotify-client-id', (req, res) => {
   if (!clientId) {
     return res.status(500).json({ error: 'missing' });
   }
-  res.json({ clientId });
+  res.json({ clientId, hasTicketmasterKey: HAS_TICKETMASTER_KEY });
 });
 
 app.get('/api/restaurants', async (req, res) => {
@@ -216,18 +220,27 @@ app.get('/api/restaurants', async (req, res) => {
 
 // --- Ticketmaster proxy ---
 app.get('/api/ticketmaster', async (req, res) => {
-  const { apiKey, keyword } = req.query || {};
-  if (!apiKey || !keyword) {
-    return res.status(400).json({ error: 'missing' });
+  const { apiKey: queryKey, keyword } = req.query || {};
+  if (!keyword) {
+    return res.status(400).json({ error: 'missing keyword' });
   }
+
+  const effectiveKey = queryKey || TICKETMASTER_CONSUMER_KEY;
+  if (!effectiveKey) {
+    return res.status(500).json({ error: 'missing ticketmaster api key' });
+  }
+
   const url =
     `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${encodeURIComponent(
-      apiKey
+      effectiveKey
     )}&classificationName=music&keyword=${encodeURIComponent(keyword)}`;
   try {
     const response = await fetch(url);
     const text = await response.text();
-    res.type('application/json').send(text);
+    res
+      .status(response.status)
+      .type('application/json')
+      .send(text);
   } catch (err) {
     console.error('Ticketmaster fetch failed', err);
     res.status(500).json({ error: 'failed' });
@@ -436,9 +449,16 @@ const shouldListen = process.env.NODE_ENV !== 'test';
 
 let server = null;
 if (shouldListen) {
-  server = app.listen(PORT, HOST, () => {
-    console.log(`✅ Serving static files at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-  });
+  server = app
+    .listen(PORT, HOST, () => {
+      console.log(
+        `✅ Serving static files at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`
+      );
+    })
+    .on('error', err => {
+      console.error('Failed to start server', err);
+      process.exit(1);
+    });
   module.exports = server;
   module.exports.app = app;
 } else {

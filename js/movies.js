@@ -6,6 +6,10 @@ const DEFAULT_INTEREST = 3;
 const MAX_DISCOVER_PAGES = 3;
 const PREF_COLLECTION = 'moviePreferences';
 
+const DEFAULT_TMDB_PROXY_ENDPOINT =
+  (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
+  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/tmdbProxy';
+
 const domRefs = {
   list: null,
   interestedList: null,
@@ -113,6 +117,43 @@ function persistApiKey(key) {
   if (domRefs.apiKeyContainer) {
     domRefs.apiKeyContainer.style.display = 'none';
   }
+}
+
+function getTmdbProxyEndpoint() {
+  if (typeof window !== 'undefined' && window.tmdbProxyEndpoint) {
+    return window.tmdbProxyEndpoint;
+  }
+  return DEFAULT_TMDB_PROXY_ENDPOINT;
+}
+
+async function callTmdbProxy(endpoint, params = {}) {
+  const proxyEndpoint = getTmdbProxyEndpoint();
+  if (!proxyEndpoint) {
+    throw new Error('TMDB proxy endpoint not configured');
+  }
+
+  const url = new URL(proxyEndpoint);
+  url.searchParams.set('endpoint', endpoint);
+  Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach(v => url.searchParams.append(key, String(v)));
+    } else if (value != null) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    const error = new Error('TMDB proxy request failed');
+    error.status = response.status;
+    try {
+      error.body = await response.text();
+    } catch (_) {
+      error.body = null;
+    }
+    throw error;
+  }
+  return response.json();
 }
 
 function summarizeMovie(movie) {
@@ -435,7 +476,7 @@ function applyPriorityOrdering(movies) {
     .sort((a, b) => (b.__priority ?? 0) - (a.__priority ?? 0));
 }
 
-async function fetchMovies(apiKey) {
+async function fetchMoviesDirect(apiKey) {
   const movies = [];
   const seen = new Set();
   for (let page = 1; page <= MAX_DISCOVER_PAGES; page++) {
@@ -460,7 +501,7 @@ async function fetchMovies(apiKey) {
   return movies;
 }
 
-async function fetchGenreMap(apiKey) {
+async function fetchGenreMapDirect(apiKey) {
   try {
     const res = await fetch(`https://api.themoviedb.org/3/genre/movie/list?api_key=${apiKey}`);
     if (!res.ok) return {};
@@ -471,9 +512,42 @@ async function fetchGenreMap(apiKey) {
   }
 }
 
+async function fetchMoviesFromProxy() {
+  const movies = [];
+  const seen = new Set();
+  for (let page = 1; page <= MAX_DISCOVER_PAGES; page++) {
+    const data = await callTmdbProxy('discover', {
+      sort_by: 'popularity.desc',
+      include_adult: 'false',
+      include_video: 'false',
+      language: 'en-US',
+      page: String(page)
+    });
+    (data.results || []).forEach(movie => {
+      if (!seen.has(movie.id)) {
+        seen.add(movie.id);
+        movies.push(movie);
+      }
+    });
+  }
+  return movies;
+}
+
+async function fetchGenreMapFromProxy() {
+  try {
+    const data = await callTmdbProxy('genres', { language: 'en-US' });
+    return Object.fromEntries((data.genres || []).map(g => [g.id, g.name]));
+  } catch (_) {
+    return {};
+  }
+}
+
 async function loadMovies() {
   const listEl = domRefs.list;
   if (!listEl) return;
+
+  const proxyEndpoint = getTmdbProxyEndpoint();
+  const usingProxy = Boolean(proxyEndpoint);
 
   const inputKey = domRefs.apiKeyInput?.value.trim();
   let apiKey = activeApiKey || inputKey;
@@ -489,28 +563,30 @@ async function loadMovies() {
     process.env &&
     (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test');
 
-  if (!apiKey && inVitest) {
+  if (!apiKey && inVitest && !usingProxy) {
     apiKey = '__TEST_FALLBACK_API_KEY__';
     usingTestFallback = true;
   }
 
-  if (!apiKey) {
+  if (!usingProxy && !apiKey) {
     listEl.innerHTML = '<em>TMDB API key not provided.</em>';
     return;
   }
 
-  if (!activeApiKey) {
+  if (!usingProxy && !activeApiKey) {
     if (usingTestFallback) {
       activeApiKey = apiKey;
-    } else {
+    } else if (apiKey) {
       persistApiKey(apiKey);
     }
   }
 
   listEl.innerHTML = '<em>Loading...</em>';
   try {
-    const movies = applyPriorityOrdering(await fetchMovies(apiKey));
-    const genres = await fetchGenreMap(apiKey);
+    const movies = applyPriorityOrdering(
+      usingProxy ? await fetchMoviesFromProxy() : await fetchMoviesDirect(apiKey)
+    );
+    const genres = usingProxy ? await fetchGenreMapFromProxy() : await fetchGenreMapDirect(apiKey);
     currentMovies = movies;
     genreMap = genres;
     refreshUI();
@@ -545,7 +621,11 @@ export async function initMoviesPanel() {
     if (domRefs.apiKeyContainer) domRefs.apiKeyContainer.style.display = 'none';
   }
 
-  if (domRefs.apiKeyInput) {
+  if (domRefs.apiKeyContainer && getTmdbProxyEndpoint()) {
+    domRefs.apiKeyContainer.style.display = 'none';
+  }
+
+  if (domRefs.apiKeyInput && !getTmdbProxyEndpoint()) {
     if (!handlers.handleKeydown) {
       handlers.handleKeydown = e => {
         if (e.key === 'Enter') {
