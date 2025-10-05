@@ -124,28 +124,8 @@
             <h2>Restaurants</h2>
             <button type="button" class="icon-btn tab-hide-btn" title="Hide Tab">🕒</button>
           </div>
-      <div id="restaurantsForm" style="margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:0.5rem; align-items:flex-end;">
-        <div>
-          <label for="restaurantsCity" style="display:block; font-size:0.85rem;">City</label>
-          <input type="text" id="restaurantsCity" placeholder="e.g. Austin" />
-        </div>
-        <div>
-          <label for="restaurantsCuisine" style="display:block; font-size:0.85rem;">Cuisine</label>
-          <input type="text" id="restaurantsCuisine" placeholder="Optional" />
-        </div>
-        <div id="restaurantsApiKeyContainer" style="display:inline-flex; flex-direction:column;">
-          <label for="restaurantsApiKey" style="font-size:0.85rem;">Yelp API Key (optional)</label>
-          <input type="text" id="restaurantsApiKey" placeholder="Leave blank to use server key" />
-          <span style="font-size:0.75rem; margin-top:0.25rem;">You can generate one at <a href="https://www.yelp.com/developers/v3/manage_app" target="_blank" rel="noopener noreferrer">Yelp Fusion</a>.</span>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:0.25rem;">
-          <button type="button" id="restaurantsUseLocationBtn" aria-label="Use current location">Use current location</button>
-          <span id="restaurantsLocationStatus" style="font-size:0.75rem; min-height:1.25em;" aria-live="polite"></span>
-        </div>
-        <button type="button" id="restaurantsSearchBtn" aria-label="Search restaurants">Search</button>
-        <div style="font-size:0.75rem; max-width:260px;">Powered by Yelp Fusion. The server will use its configured <code>YELP_API_KEY</code> by default; enter your own here to override. Use your current location to see the closest restaurants first.</div>
-      </div>
-      <div id="restaurantsResults" class="decision-container"></div>
+      <p style="margin-bottom:1rem; font-size:0.95rem;">Discover the highest-rated spots around you powered by Yelp Fusion.</p>
+      <div id="restaurantsResults" class="decision-container" aria-live="polite"></div>
     </div>
   </div>
 
