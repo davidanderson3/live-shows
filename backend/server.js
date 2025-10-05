@@ -171,7 +171,8 @@ app.get('/api/restaurants', async (req, res) => {
 
   const params = new URLSearchParams({
     categories: 'restaurants',
-    limit: '20'
+    limit: '20',
+    sort_by: 'rating'
   });
   if (city) {
     params.set('location', String(city));
@@ -180,7 +181,6 @@ app.get('/api/restaurants', async (req, res) => {
     params.delete('location');
     params.set('latitude', String(latitude));
     params.set('longitude', String(longitude));
-    params.set('sort_by', 'distance');
   }
   if (cuisine) {
     params.set('term', String(cuisine));

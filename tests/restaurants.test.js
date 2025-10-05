@@ -4,27 +4,9 @@ import { JSDOM } from 'jsdom';
 function setupDom() {
   return new JSDOM(`
     <div id="restaurantsPanel">
-      <div id="restaurantsForm">
-        <input id="restaurantsCity" />
-        <input id="restaurantsCuisine" />
-        <div id="restaurantsApiKeyContainer"><input id="restaurantsApiKey" /></div>
-        <button id="restaurantsUseLocationBtn"></button>
-        <span id="restaurantsLocationStatus"></span>
-        <button id="restaurantsSearchBtn"></button>
-      </div>
       <div id="restaurantsResults"></div>
     </div>
   `);
-}
-
-function mockLocalStorage() {
-  const store = new Map();
-  return {
-    getItem: key => (store.has(key) ? store.get(key) : null),
-    setItem: (key, value) => { store.set(key, String(value)); },
-    removeItem: key => { store.delete(key); },
-    clear: () => { store.clear(); }
-  };
 }
 
 describe('initRestaurantsPanel', () => {
@@ -33,7 +15,6 @@ describe('initRestaurantsPanel', () => {
   beforeEach(async () => {
     vi.resetModules();
     ({ initRestaurantsPanel } = await import('../js/restaurants.js'));
-    global.localStorage = mockLocalStorage();
   });
 
   afterEach(() => {
@@ -41,29 +22,28 @@ describe('initRestaurantsPanel', () => {
     delete global.fetch;
     delete global.window;
     delete global.document;
-    delete global.localStorage;
+    delete global.navigator;
   });
 
-  it('fetches and renders restaurant results', async () => {
+  it('requests location and renders restaurants sorted by rating', async () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
-    Object.defineProperty(window, 'localStorage', {
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
       configurable: true,
-      get: () => global.localStorage
+      value: geoMock
     });
+    global.navigator = window.navigator;
 
     const sampleData = [
-      {
-        name: 'Pizza Palace',
-        address: '123 Main St',
-        city: 'Austin',
-        state: 'TX',
-        cuisine: 'Pizza',
-        phone: '555-1234',
-        rating: 4.5,
-        website: 'pizzapalace.com'
-      }
+      { name: 'Second Place', rating: 4.1, reviewCount: 120 },
+      { name: 'Top Rated', rating: 4.8, reviewCount: 45 }
     ];
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -73,88 +53,65 @@ describe('initRestaurantsPanel', () => {
 
     await initRestaurantsPanel();
 
-    const cityInput = document.getElementById('restaurantsCity');
-    const apiKeyInput = document.getElementById('restaurantsApiKey');
-    const searchBtn = document.getElementById('restaurantsSearchBtn');
-
-    cityInput.value = 'Austin';
-    apiKeyInput.value = 'API_KEY';
-    searchBtn.click();
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('city=Austin'),
-      expect.objectContaining({ headers: { 'X-Api-Key': 'API_KEY' } })
-    );
+    expect(geoMock.getCurrentPosition).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain('latitude=30.2672');
+    expect(fetch.mock.calls[0][0]).toContain('longitude=-97.7431');
 
     const results = document.getElementById('restaurantsResults');
-    expect(results.textContent).toContain('Pizza Palace');
-    expect(results.textContent).toContain('Pizza');
+    const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
+    expect(headings[0]).toBe('Top Rated');
   });
 
-  it('shows validation message when city missing', async () => {
+  it('shows message when location permission denied', async () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
-    Object.defineProperty(window, 'localStorage', {
-      configurable: true,
-      get: () => global.localStorage
-    });
-
-    global.fetch = vi.fn();
-
-    await initRestaurantsPanel();
-
-    const apiKeyInput = document.getElementById('restaurantsApiKey');
-    apiKeyInput.value = 'API_KEY';
-    document.getElementById('restaurantsSearchBtn').click();
-
-    const results = document.getElementById('restaurantsResults');
-    expect(results.textContent).toContain('Enter a city or use your current location');
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('requests current location and searches by proximity', async () => {
-    const dom = setupDom();
-    global.window = dom.window;
-    global.document = dom.window.document;
-    Object.defineProperty(window, 'localStorage', {
-      configurable: true,
-      get: () => global.localStorage
-    });
 
     const geoMock = {
-      getCurrentPosition: vi.fn()
+      getCurrentPosition: vi.fn((_, error) => {
+        error({ code: 1 });
+      })
     };
     Object.defineProperty(window.navigator, 'geolocation', {
       configurable: true,
       value: geoMock
     });
+    global.navigator = window.navigator;
+
+    global.fetch = vi.fn();
+
+    await initRestaurantsPanel();
+
+    const results = document.getElementById('restaurantsResults');
+    expect(results.textContent).toContain('Location access is required');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('shows API error messages', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 40.0, longitude: -74.0 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
 
     global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([])
+      ok: false,
+      json: () => Promise.resolve({ error: 'failed' })
     });
 
     await initRestaurantsPanel();
 
-    const successPayload = {
-      coords: { latitude: 30.2672, longitude: -97.7431 }
-    };
-
-    geoMock.getCurrentPosition.mockImplementation(successCb => {
-      successCb(successPayload);
-    });
-
-    document.getElementById('restaurantsUseLocationBtn').click();
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('latitude=30.2672'),
-      expect.anything()
-    );
-    expect(fetch.mock.calls[0][0]).toContain('longitude=-97.7431');
+    const results = document.getElementById('restaurantsResults');
+    expect(results.textContent).toContain('failed');
   });
 });
