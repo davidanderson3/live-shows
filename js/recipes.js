@@ -4,6 +4,86 @@ const API_BASE_URL =
   (typeof window !== 'undefined' && window.location?.origin) ||
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
 
+const stripHtml = text =>
+  typeof text === 'string'
+    ? text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+    : '';
+
+const readArray = key => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error(`Failed to read ${key} from storage`, err);
+    return [];
+  }
+};
+
+const writeArray = (key, value) => {
+  localStorage.setItem(key, JSON.stringify(value));
+};
+
+const toUniqueKey = recipe => {
+  if (recipe === null || recipe === undefined) return '';
+  if (typeof recipe === 'string' || typeof recipe === 'number') {
+    return String(recipe);
+  }
+  const base = recipe.id ?? recipe.title ?? '';
+  return String(base);
+};
+
+const formatPrice = cents => {
+  if (typeof cents !== 'number') return '';
+  const dollars = cents / 100;
+  return dollars.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2
+  });
+};
+
+const buildFactEntries = r => {
+  const facts = [
+    ['Ready in', r.readyInMinutes ? `${r.readyInMinutes} min` : null],
+    ['Servings', r.servings ?? null],
+    ['Score', r.spoonacularScore ?? null],
+    ['Health score', r.healthScore ?? null],
+    ['Likes', r.aggregateLikes ?? null],
+    ['Price / serving', r.pricePerServing ? formatPrice(r.pricePerServing) : null]
+  ];
+  return facts.filter(([, value]) => value !== null && value !== undefined && value !== '');
+};
+
+const buildTagGroups = r => {
+  const groups = [
+    ['Cuisines', r.cuisines],
+    ['Diets', r.diets],
+    ['Dish types', r.dishTypes],
+    ['Occasions', r.occasions]
+  ];
+  return groups
+    .map(([label, values]) => ({
+      label,
+      items: (Array.isArray(values) ? values : []).filter(Boolean)
+    }))
+    .filter(group => group.items.length);
+};
+
+const buildBadges = r => {
+  const booleanBadges = [
+    ['Vegetarian', r.vegetarian],
+    ['Vegan', r.vegan],
+    ['Gluten free', r.glutenFree],
+    ['Dairy free', r.dairyFree],
+    ['Very healthy', r.veryHealthy]
+  ];
+  return booleanBadges
+    .filter(([, value]) => value === true)
+    .map(([label]) => label);
+};
+
 export async function initRecipesPanel() {
   const listEl = document.getElementById('recipesList');
   if (!listEl) return;
@@ -43,104 +123,271 @@ export async function initRecipesPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const recipes = Array.isArray(data?.results)
-        ? data.results.map(r => ({
-            title: r.title,
-            ingredients: r.extendedIngredients?.map(i => i.original).join('|') || '',
-            servings: r.servings,
-            instructions: r.analyzedInstructions?.[0]?.steps.map(s => s.step).join('. ') || '',
-            spoonacularScore: r.spoonacularScore,
-            aggregateLikes: r.aggregateLikes,
-            readyInMinutes: r.readyInMinutes
-          }))
+        ? data.results.map(r => {
+            const instructions = Array.isArray(r.analyzedInstructions)
+              ? r.analyzedInstructions
+                  .flatMap(instruction => instruction?.steps || [])
+                  .map(step => step?.step?.trim())
+                  .filter(Boolean)
+              : [];
+            const ingredients = Array.isArray(r.extendedIngredients)
+              ? r.extendedIngredients
+                  .map(ing => ing?.original || ing?.name || '')
+                  .map(text => stripHtml(text))
+                  .filter(Boolean)
+              : [];
+            const summary = stripHtml(r.summary);
+            const facts = buildFactEntries(r);
+            const tagGroups = buildTagGroups(r);
+            const badges = buildBadges(r);
+            const winePairing = {
+              wines: Array.isArray(r.winePairing?.pairedWines)
+                ? r.winePairing.pairedWines.filter(Boolean)
+                : [],
+              text: stripHtml(r.winePairing?.pairingText)
+            };
+            const storage = {
+              id: r.id ?? null,
+              title: r.title || 'Untitled',
+              sourceUrl: r.sourceUrl || ''
+            };
+            const storageKey = toUniqueKey(storage);
+            return {
+              storage,
+              storageKey,
+              title: r.title || 'Untitled',
+              image: r.image || '',
+              summary,
+              ingredients,
+              instructions,
+              facts,
+              tagGroups,
+              badges,
+              sourceName: r.sourceName || '',
+              sourceUrl: r.sourceUrl || '',
+              winePairing
+            };
+          })
         : [];
       if (recipes.length === 0) {
         listEl.textContent = 'No recipes found.';
         return;
       }
-      const hidden = JSON.parse(localStorage.getItem('recipesHidden') || '[]');
+      const hidden = readArray('recipesHidden').map(String);
       const limited = recipes
-        .filter(r => !hidden.includes(r.title))
+        .filter(r => !hidden.includes(r.storageKey))
         .slice(0, 10);
+      if (limited.length === 0) {
+        listEl.innerHTML = '<p><em>No recipes to show. Try unhiding recipes or searching again.</em></p>';
+        return;
+      }
       const ul = document.createElement('ul');
-      limited.forEach(r => {
+      ul.className = 'recipe-card-list';
+      limited.forEach(recipe => {
         const li = document.createElement('li');
-        const title = document.createElement('strong');
-        title.textContent = r.title || 'Untitled';
-        li.appendChild(title);
+        li.className = 'recipe-card-item';
+
+        const card = document.createElement('article');
+        card.className = 'recipe-card';
+
+        const header = document.createElement('header');
+        header.className = 'recipe-card__header';
+
+        const title = document.createElement('h3');
+        title.className = 'recipe-card__title';
+        title.textContent = recipe.title;
+        header.appendChild(title);
+
+        const actions = document.createElement('div');
+        actions.className = 'recipe-card__actions';
 
         const saveBtn = document.createElement('button');
+        saveBtn.className = 'recipe-card__action';
         saveBtn.textContent = 'Save';
+        if (
+          readArray('recipesSaved').some(savedRecipe => {
+            const savedKey = toUniqueKey(savedRecipe);
+            return savedKey === recipe.storageKey;
+          })
+        ) {
+          saveBtn.textContent = 'Saved';
+          saveBtn.disabled = true;
+        }
         saveBtn.addEventListener('click', () => {
-          const saved = JSON.parse(localStorage.getItem('recipesSaved') || '[]');
-          if (!saved.some(s => s.title === r.title)) {
-            saved.push(r);
-            localStorage.setItem('recipesSaved', JSON.stringify(saved));
+          const saved = readArray('recipesSaved');
+          if (
+            !saved.some(savedRecipe => {
+              const savedKey = toUniqueKey(savedRecipe);
+              return savedKey === recipe.storageKey;
+            })
+          ) {
+            saved.push(recipe.storage);
+            writeArray('recipesSaved', saved);
           }
           saveBtn.textContent = 'Saved';
           saveBtn.disabled = true;
         });
-        li.appendChild(saveBtn);
+        actions.appendChild(saveBtn);
 
         const hideBtn = document.createElement('button');
+        hideBtn.className = 'recipe-card__action';
         hideBtn.textContent = 'Hide';
         hideBtn.addEventListener('click', () => {
-          const stored = JSON.parse(localStorage.getItem('recipesHidden') || '[]');
-          if (!stored.includes(r.title)) {
-            stored.push(r.title);
-            localStorage.setItem('recipesHidden', JSON.stringify(stored));
+          const stored = readArray('recipesHidden').map(String);
+          if (!stored.includes(recipe.storageKey)) {
+            stored.push(recipe.storageKey);
+            writeArray('recipesHidden', stored);
           }
           li.remove();
         });
-        li.appendChild(hideBtn);
+        actions.appendChild(hideBtn);
 
-        // Ingredients
-        if (r.ingredients) {
-          const ingHeader = document.createElement('div');
-          ingHeader.textContent = 'Ingredients';
-          li.appendChild(ingHeader);
-          const ingList = document.createElement('ul');
-          const rawIngredients = r.ingredients.includes('|') ? r.ingredients.split('|') : r.ingredients.split(',');
-          rawIngredients.map(i => i.trim()).filter(Boolean).forEach(i => {
-            const ingItem = document.createElement('li');
-            ingItem.textContent = i;
-            ingList.appendChild(ingItem);
+        header.appendChild(actions);
+        card.appendChild(header);
+
+        if (recipe.image) {
+          const figure = document.createElement('figure');
+          figure.className = 'recipe-card__media';
+          const img = document.createElement('img');
+          img.className = 'recipe-card__image';
+          img.src = recipe.image;
+          img.alt = `${recipe.title} photo`;
+          figure.appendChild(img);
+          card.appendChild(figure);
+        }
+
+        if (recipe.summary) {
+          const summary = document.createElement('p');
+          summary.className = 'recipe-card__summary';
+          summary.textContent = recipe.summary;
+          card.appendChild(summary);
+        }
+
+        if (recipe.badges.length) {
+          const badgeWrap = document.createElement('div');
+          badgeWrap.className = 'recipe-card__badges';
+          recipe.badges.forEach(label => {
+            const badge = document.createElement('span');
+            badge.className = 'recipe-card__badge';
+            badge.textContent = label;
+            badgeWrap.appendChild(badge);
           });
-          li.appendChild(ingList);
+          card.appendChild(badgeWrap);
         }
 
-        // Servings
-        if (r.servings) {
-          const servingsEl = document.createElement('p');
-          servingsEl.textContent = `Servings: ${r.servings}`;
-          li.appendChild(servingsEl);
+        if (recipe.facts.length) {
+          const facts = document.createElement('dl');
+          facts.className = 'recipe-card__facts';
+          recipe.facts.forEach(([label, value]) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'recipe-card__fact';
+            const factLabel = document.createElement('dt');
+            factLabel.className = 'recipe-card__fact-label';
+            factLabel.textContent = label;
+            const factValue = document.createElement('dd');
+            factValue.className = 'recipe-card__fact-value';
+            factValue.textContent = value;
+            wrapper.appendChild(factLabel);
+            wrapper.appendChild(factValue);
+            facts.appendChild(wrapper);
+          });
+          card.appendChild(facts);
         }
 
-        // Instructions
-        if (r.instructions) {
-          const instrHeader = document.createElement('div');
-          instrHeader.textContent = 'Instructions';
-          li.appendChild(instrHeader);
-          const instrList = document.createElement('ol');
-          r.instructions.split('.').map(s => s.trim()).filter(Boolean).forEach(step => {
+        if (recipe.tagGroups.length) {
+          const tagSection = document.createElement('div');
+          tagSection.className = 'recipe-card__tags';
+          recipe.tagGroups.forEach(group => {
+            const groupEl = document.createElement('div');
+            groupEl.className = 'recipe-card__tag-group';
+            const groupLabel = document.createElement('span');
+            groupLabel.className = 'recipe-card__tag-label';
+            groupLabel.textContent = group.label;
+            groupEl.appendChild(groupLabel);
+            group.items.forEach(item => {
+              const chip = document.createElement('span');
+              chip.className = 'recipe-card__tag';
+              chip.textContent = item;
+              groupEl.appendChild(chip);
+            });
+            tagSection.appendChild(groupEl);
+          });
+          card.appendChild(tagSection);
+        }
+
+        if (recipe.ingredients.length) {
+          const section = document.createElement('section');
+          section.className = 'recipe-card__section';
+          const heading = document.createElement('h4');
+          heading.className = 'recipe-card__section-title';
+          heading.textContent = 'Ingredients';
+          section.appendChild(heading);
+          const list = document.createElement('ul');
+          list.className = 'recipe-card__ingredients';
+          recipe.ingredients.forEach(item => {
+            const ingItem = document.createElement('li');
+            ingItem.textContent = item;
+            list.appendChild(ingItem);
+          });
+          section.appendChild(list);
+          card.appendChild(section);
+        }
+
+        if (recipe.instructions.length) {
+          const section = document.createElement('section');
+          section.className = 'recipe-card__section';
+          const heading = document.createElement('h4');
+          heading.className = 'recipe-card__section-title';
+          heading.textContent = 'Instructions';
+          section.appendChild(heading);
+          const list = document.createElement('ol');
+          list.className = 'recipe-card__steps';
+          recipe.instructions.forEach(step => {
             const stepItem = document.createElement('li');
             stepItem.textContent = step;
-            instrList.appendChild(stepItem);
+            list.appendChild(stepItem);
           });
-          li.appendChild(instrList);
+          section.appendChild(list);
+          card.appendChild(section);
         }
 
-        // Other metadata
-        const metaEntries = Object.entries(r).filter(([key]) => !['title', 'ingredients', 'servings', 'instructions'].includes(key));
-        if (metaEntries.length) {
-          const metaList = document.createElement('ul');
-          metaEntries.forEach(([key, value]) => {
-            const metaItem = document.createElement('li');
-            metaItem.textContent = `${key}: ${value}`;
-            metaList.appendChild(metaItem);
-          });
-          li.appendChild(metaList);
+        if (recipe.winePairing.wines.length || recipe.winePairing.text) {
+          const section = document.createElement('section');
+          section.className = 'recipe-card__section';
+          const heading = document.createElement('h4');
+          heading.className = 'recipe-card__section-title';
+          heading.textContent = 'Wine pairing';
+          section.appendChild(heading);
+          if (recipe.winePairing.wines.length) {
+            const wines = document.createElement('p');
+            wines.className = 'recipe-card__wine-list';
+            wines.textContent = recipe.winePairing.wines.join(', ');
+            section.appendChild(wines);
+          }
+          if (recipe.winePairing.text) {
+            const details = document.createElement('p');
+            details.className = 'recipe-card__wine-text';
+            details.textContent = recipe.winePairing.text;
+            section.appendChild(details);
+          }
+          card.appendChild(section);
         }
 
+        if (recipe.sourceUrl) {
+          const source = document.createElement('p');
+          source.className = 'recipe-card__source';
+          const link = document.createElement('a');
+          link.href = recipe.sourceUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = recipe.sourceName
+            ? `View on ${recipe.sourceName}`
+            : 'View full recipe';
+          source.appendChild(link);
+          card.appendChild(source);
+        }
+
+        li.appendChild(card);
         ul.appendChild(li);
       });
       listEl.innerHTML = '';

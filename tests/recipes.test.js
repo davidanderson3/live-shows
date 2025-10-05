@@ -32,7 +32,7 @@ describe('initRecipesPanel', () => {
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const textEl = document.querySelector('#recipesList li strong');
+    const textEl = document.querySelector('#recipesList .recipe-card__title');
     expect(textEl.textContent).toBe('Chicken Soup');
     expect(fetch).toHaveBeenCalledWith(
       'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/spoonacularProxy?query=chicken'
@@ -46,13 +46,16 @@ describe('initRecipesPanel', () => {
           title: 'Soup',
           extendedIngredients: [{ original: 'chicken' }, { original: 'water' }],
           analyzedInstructions: [{ steps: [{ step: 'boil' }] }],
-          servings: 2
+          servings: 2,
+          summary: '<p>Rich soup</p>',
+          cuisines: ['American']
         },
         {
           title: 'Stew',
           extendedIngredients: [{ original: 'beef' }, { original: 'salt' }],
           analyzedInstructions: [{ steps: [{ step: 'cook' }] }],
-          readyInMinutes: 30
+          readyInMinutes: 30,
+          diets: ['Gluten Free']
         }
       ]
     };
@@ -66,23 +69,33 @@ describe('initRecipesPanel', () => {
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const items = document.querySelectorAll('#recipesList > ul > li');
-    expect(items.length).toBe(2);
+    const cards = document.querySelectorAll('#recipesList .recipe-card');
+    expect(cards.length).toBe(2);
 
-    const ingredientsList = items[0].querySelector('div + ul');
-    const ingItems = ingredientsList.querySelectorAll('li');
+    const summary = cards[0].querySelector('.recipe-card__summary').textContent;
+    expect(summary).toBe('Rich soup');
+
+    const ingItems = cards[0].querySelectorAll('.recipe-card__ingredients li');
     expect(ingItems.length).toBe(2);
     expect(ingItems[0].textContent).toBe('chicken');
     expect(ingItems[1].textContent).toBe('water');
 
-    const instructions = items[0].querySelectorAll('ol li');
+    const instructions = cards[0].querySelectorAll('.recipe-card__steps li');
     expect(instructions.length).toBe(1);
     expect(instructions[0].textContent).toBe('boil');
 
-    const servingsText = items[0].querySelector('p').textContent;
-    expect(servingsText).toBe('Servings: 2');
+    const factValues = Array.from(
+      cards[0].querySelectorAll('.recipe-card__fact')
+    ).map(el => el.textContent);
+    expect(factValues.some(text => text.includes('Servings') && text.includes('2'))).toBe(true);
 
-    expect(items[1].textContent).toContain('readyInMinutes: 30');
+    const readyFact = Array.from(
+      cards[1].querySelectorAll('.recipe-card__fact')
+    ).some(textEl => textEl.textContent.includes('Ready in') && textEl.textContent.includes('30'));
+    expect(readyFact).toBe(true);
+
+    const tagChip = cards[0].querySelector('.recipe-card__tag');
+    expect(tagChip.textContent).toBe('American');
   });
 
   it('limits displayed recipes to 10', async () => {
@@ -101,7 +114,7 @@ describe('initRecipesPanel', () => {
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const items = document.querySelectorAll('#recipesList > ul > li');
+    const items = document.querySelectorAll('#recipesList .recipe-card-item');
     expect(items.length).toBe(10);
   });
 
@@ -127,16 +140,17 @@ describe('initRecipesPanel', () => {
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const hideBtn = document.querySelectorAll('#recipesList li button')[1];
+    const firstCard = document.querySelectorAll('#recipesList .recipe-card-item')[0];
+    const hideBtn = firstCard.querySelectorAll('.recipe-card__action')[1];
     hideBtn.click();
     await new Promise(r => setTimeout(r, 0));
 
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const items = document.querySelectorAll('#recipesList > ul > li');
+    const items = document.querySelectorAll('#recipesList .recipe-card-item');
     expect(items.length).toBe(1);
-    expect(items[0].querySelector('strong').textContent).toBe('B');
+    expect(items[0].querySelector('.recipe-card__title').textContent).toBe('B');
     expect(JSON.parse(store['recipesHidden'])).toContain('A');
   });
 
@@ -161,7 +175,7 @@ describe('initRecipesPanel', () => {
     document.getElementById('recipesSearchBtn').click();
     await new Promise(r => setTimeout(r, 0));
 
-    const saveBtn = document.querySelector('#recipesList li button');
+    const saveBtn = document.querySelector('#recipesList .recipe-card__action');
     saveBtn.click();
     const saved = JSON.parse(store['recipesSaved']);
     expect(saved[0].title).toBe('Toast');
