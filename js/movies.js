@@ -38,6 +38,33 @@ const handlers = {
   handleChange: null
 };
 
+function getNameList(input) {
+  if (!input) return [];
+
+  if (Array.isArray(input)) {
+    return input
+      .map(entry => {
+        if (typeof entry === 'string') {
+          return entry.trim();
+        }
+        if (entry && typeof entry.name === 'string') {
+          return entry.name.trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof input === 'string') {
+    return input
+      .split(',')
+      .map(name => name.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 function meetsQualityThreshold(movie, minAverage = MIN_VOTE_AVERAGE, minVotes = MIN_VOTE_COUNT) {
   if (!movie || typeof movie !== 'object') return false;
   const average = Number(movie.vote_average ?? 0);
