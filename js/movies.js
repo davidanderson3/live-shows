@@ -14,6 +14,8 @@ const DEFAULT_TMDB_PROXY_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/tmdbProxy';
 
+let proxyDisabled = false;
+
 const domRefs = {
   list: null,
   interestedList: null,
@@ -159,10 +161,19 @@ function persistApiKey(key) {
 }
 
 function getTmdbProxyEndpoint() {
+  if (proxyDisabled) return '';
   if (typeof window !== 'undefined' && window.tmdbProxyEndpoint) {
     return window.tmdbProxyEndpoint;
   }
   return DEFAULT_TMDB_PROXY_ENDPOINT;
+}
+
+function disableTmdbProxy() {
+  if (proxyDisabled) return;
+  proxyDisabled = true;
+  if (domRefs.apiKeyContainer) {
+    domRefs.apiKeyContainer.style.display = '';
+  }
 }
 
 async function callTmdbProxy(endpoint, params = {}) {
@@ -181,7 +192,14 @@ async function callTmdbProxy(endpoint, params = {}) {
     }
   });
 
-  const response = await fetch(url.toString());
+  let response;
+  try {
+    response = await fetch(url.toString());
+  } catch (err) {
+    disableTmdbProxy();
+    throw err;
+  }
+
   if (!response.ok) {
     const error = new Error('TMDB proxy request failed');
     error.status = response.status;
@@ -189,6 +207,9 @@ async function callTmdbProxy(endpoint, params = {}) {
       error.body = await response.text();
     } catch (_) {
       error.body = null;
+    }
+    if (response.status >= 400) {
+      disableTmdbProxy();
     }
     throw error;
   }
@@ -753,6 +774,17 @@ async function loadMovies() {
     genreMap = genres;
     refreshUI();
   } catch (err) {
+    if (usingProxy) {
+      console.warn('TMDB proxy unavailable, falling back to direct API', err);
+      disableTmdbProxy();
+      if (!apiKey) {
+        listEl.innerHTML =
+          '<em>TMDB proxy is unavailable. Please enter your TMDB API key to continue.</em>';
+        return;
+      }
+      await loadMovies();
+      return;
+    }
     console.error('Failed to load movies', err);
     listEl.textContent = 'Failed to load movies.';
   }
@@ -783,10 +815,6 @@ export async function initMoviesPanel() {
     if (domRefs.apiKeyContainer) domRefs.apiKeyContainer.style.display = 'none';
   }
 
-  if (domRefs.apiKeyContainer && getTmdbProxyEndpoint()) {
-    domRefs.apiKeyContainer.style.display = 'none';
-  }
-
   if (domRefs.apiKeyInput && !getTmdbProxyEndpoint()) {
     if (!handlers.handleKeydown) {
       handlers.handleKeydown = e => {
@@ -807,6 +835,10 @@ export async function initMoviesPanel() {
     domRefs.apiKeyInput.removeEventListener('change', handlers.handleChange);
     domRefs.apiKeyInput.addEventListener('keydown', handlers.handleKeydown);
     domRefs.apiKeyInput.addEventListener('change', handlers.handleChange);
+  }
+
+  if (domRefs.apiKeyContainer && getTmdbProxyEndpoint()) {
+    domRefs.apiKeyContainer.style.display = 'none';
   }
 
   if (domRefs.tabs) {
