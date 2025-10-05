@@ -52,6 +52,29 @@ function calculateDistanceMiles(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+function formatEventDate(start) {
+  if (!start?.localDate) return '';
+  const { localDate, localTime } = start;
+  let isoString = localDate;
+  if (localTime) {
+    isoString += `T${localTime}`;
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return localTime ? `${localDate} ${localTime}` : localDate;
+  }
+  const options = { dateStyle: 'medium' };
+  if (localTime) {
+    options.timeStyle = 'short';
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, options).format(date);
+  } catch (err) {
+    console.warn('Unable to format show date', err);
+    return localTime ? `${localDate} ${localTime}` : localDate;
+  }
+}
+
 async function getUserLocation() {
   if (userLocationRequested) {
     return cachedUserLocation;
@@ -242,6 +265,11 @@ export async function initShowsPanel() {
       }
 
       const userLocation = await getUserLocation();
+      if (!userLocation) {
+        listEl.innerHTML =
+          '<p class="shows-empty">Allow location access to see shows within 300 miles.</p>';
+        return;
+      }
       const eventsMap = new Map();
       let eventCounter = 0;
       for (const artist of artists) {
@@ -272,6 +300,12 @@ export async function initShowsPanel() {
               lon
             );
           }
+          if (Number.isFinite(distance) && distance > 300) {
+            continue;
+          }
+          if (distance == null) {
+            continue;
+          }
           const eventKey =
             ev.id ||
             `${artist.id || artist.name || 'artist'}-${ev.url || ev.name || eventCounter}`;
@@ -288,6 +322,7 @@ export async function initShowsPanel() {
       listEl.innerHTML = '';
       if (eventsMap.size > 0) {
         const ul = document.createElement('ul');
+        ul.className = 'shows-grid';
         const events = Array.from(eventsMap.values());
         if (cachedUserLocation) {
           events.sort((a, b) => {
@@ -302,39 +337,68 @@ export async function initShowsPanel() {
         }
         for (const { event, venue, distance } of events) {
           const li = document.createElement('li');
-          const nameDiv = document.createElement('div');
-          nameDiv.textContent = event.name || 'Unnamed event';
-          li.appendChild(nameDiv);
-          const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
-          if (locParts.length > 0) {
-            const locDiv = document.createElement('div');
-            locDiv.textContent = locParts.join(' - ');
-            li.appendChild(locDiv);
+          li.className = 'show-card';
+          const imageUrl =
+            event.images?.find(image => image.ratio === '16_9')?.url || event.images?.[0]?.url;
+          if (imageUrl) {
+            const imageWrapper = document.createElement('div');
+            imageWrapper.className = 'show-card__media';
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.alt = `${event.name || 'Event'} poster`;
+            img.loading = 'lazy';
+            imageWrapper.appendChild(img);
+            li.appendChild(imageWrapper);
           }
+          const content = document.createElement('div');
+          content.className = 'show-card__content';
+          const header = document.createElement('header');
+          header.className = 'show-card__header';
+          const nameHeading = document.createElement('h3');
+          nameHeading.className = 'show-card__title';
+          nameHeading.textContent = event.name || 'Unnamed event';
+          header.appendChild(nameHeading);
+          const meta = document.createElement('div');
+          meta.className = 'show-card__meta';
+          const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
           const date = event.dates?.start?.localDate;
           if (date) {
             const dateDiv = document.createElement('div');
-            dateDiv.textContent = date;
-            li.appendChild(dateDiv);
+            dateDiv.className = 'show-card__date';
+            dateDiv.textContent = formatEventDate(event.dates?.start);
+            meta.appendChild(dateDiv);
           }
           if (Number.isFinite(distance)) {
             const distanceDiv = document.createElement('div');
-            distanceDiv.textContent = `${distance.toFixed(1)} miles away`;
-            li.appendChild(distanceDiv);
+            distanceDiv.className = 'show-card__tag';
+            distanceDiv.textContent = `${distance.toFixed(0)} miles away`;
+            meta.appendChild(distanceDiv);
+          }
+          if (meta.childElementCount > 0) {
+            header.appendChild(meta);
+          }
+          content.appendChild(header);
+          if (locParts.length > 0) {
+            const locDiv = document.createElement('div');
+            locDiv.className = 'show-card__location';
+            locDiv.textContent = locParts.join(' · ');
+            content.appendChild(locDiv);
           }
           if (event.url) {
             const link = document.createElement('a');
             link.href = event.url;
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
-            link.textContent = 'View Event';
-            li.appendChild(link);
+            link.className = 'show-card__cta';
+            link.textContent = 'Get Tickets';
+            content.appendChild(link);
           }
+          li.appendChild(content);
           ul.appendChild(li);
         }
         listEl.appendChild(ul);
       } else {
-        listEl.textContent = 'No upcoming shows.';
+        listEl.textContent = 'No nearby shows within 300 miles.';
       }
     } catch (err) {
       console.error('Failed to load shows', err);
