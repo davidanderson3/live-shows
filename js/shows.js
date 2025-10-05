@@ -34,6 +34,10 @@ async function pkceChallenge(verifier) {
 let cachedUserLocation = null;
 let userLocationRequested = false;
 
+const SHOW_PREFS_STORAGE_KEY = 'showsPreferences';
+let currentShows = [];
+let showsEmptyReason = null;
+
 function toRadians(deg) {
   return (deg * Math.PI) / 180;
 }
@@ -99,6 +103,230 @@ async function getUserLocation() {
     cachedUserLocation = null;
   }
   return cachedUserLocation;
+}
+
+function loadStoredShowPreferences() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(SHOW_PREFS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    console.warn('Unable to parse show preferences from storage', err);
+    return {};
+  }
+}
+
+function saveShowPreferences(prefs) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(SHOW_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  } catch (err) {
+    console.warn('Unable to save show preferences to storage', err);
+  }
+}
+
+let showPreferences = loadStoredShowPreferences();
+
+function updateShowStatus(id, status) {
+  if (!id) return;
+  const next = { ...showPreferences };
+  if (!status) {
+    delete next[id];
+  } else {
+    next[id] = { status, updatedAt: Date.now() };
+  }
+  showPreferences = next;
+  saveShowPreferences(showPreferences);
+  renderShowsList();
+}
+
+function getShowStatus(id) {
+  return showPreferences[id]?.status || null;
+}
+
+function renderShowsList() {
+  const listEl = document.getElementById('ticketmasterList');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+
+  if (!currentShows.length) {
+    const emptyMessage =
+      showsEmptyReason === 'noNearby'
+        ? 'No nearby shows within 300 miles.'
+        : 'No shows available right now.';
+    const emptyEl = document.createElement('p');
+    emptyEl.className = 'shows-empty';
+    emptyEl.textContent = emptyMessage;
+    listEl.appendChild(emptyEl);
+    return;
+  }
+
+  const active = [];
+  const dismissed = [];
+  for (const item of currentShows) {
+    const status = getShowStatus(item.id);
+    const target = status === 'notInterested' ? dismissed : active;
+    target.push({ ...item, status });
+  }
+
+  if (active.length) {
+    const activeList = document.createElement('ul');
+    activeList.className = 'shows-grid';
+    for (const item of active) {
+      activeList.appendChild(createShowCard(item));
+    }
+    listEl.appendChild(activeList);
+  } else {
+    const noActive = document.createElement('p');
+    noActive.className = 'shows-empty';
+    noActive.textContent = dismissed.length
+      ? 'No other shows right now. Review ones you previously skipped below.'
+      : 'No nearby shows within 300 miles.';
+    listEl.appendChild(noActive);
+  }
+
+  if (dismissed.length) {
+    const dismissedSection = document.createElement('details');
+    dismissedSection.className = 'shows-dismissed';
+
+    const summary = document.createElement('summary');
+    summary.className = 'shows-dismissed__summary';
+    summary.textContent = `Not Interested (${dismissed.length})`;
+    dismissedSection.appendChild(summary);
+
+    const dismissedList = document.createElement('ul');
+    dismissedList.className = 'shows-grid shows-grid--dismissed';
+    for (const item of dismissed) {
+      dismissedList.appendChild(createShowCard(item));
+    }
+    dismissedSection.appendChild(dismissedList);
+
+    listEl.appendChild(dismissedSection);
+  }
+}
+
+function createShowCard(item) {
+  const { event, venue, distance, status } = item;
+
+  const li = document.createElement('li');
+  li.className = 'show-card';
+  if (status === 'interested') {
+    li.classList.add('show-card--interested');
+  }
+
+  const imageUrl =
+    event.images?.find(image => image.ratio === '16_9')?.url || event.images?.[0]?.url;
+  if (imageUrl) {
+    const imageWrapper = document.createElement('div');
+    imageWrapper.className = 'show-card__media';
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.alt = `${event.name || 'Event'} poster`;
+    img.loading = 'lazy';
+    imageWrapper.appendChild(img);
+    li.appendChild(imageWrapper);
+  }
+
+  const content = document.createElement('div');
+  content.className = 'show-card__content';
+
+  const header = document.createElement('header');
+  header.className = 'show-card__header';
+
+  const nameHeading = document.createElement('h3');
+  nameHeading.className = 'show-card__title';
+  nameHeading.textContent = event.name || 'Unnamed event';
+  header.appendChild(nameHeading);
+
+  if (status === 'interested') {
+    const chip = document.createElement('span');
+    chip.className = 'show-card__status';
+    chip.textContent = 'Interested';
+    header.appendChild(chip);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'show-card__meta';
+
+  const date = event.dates?.start?.localDate;
+  if (date) {
+    const dateDiv = document.createElement('div');
+    dateDiv.className = 'show-card__date';
+    dateDiv.textContent = formatEventDate(event.dates?.start);
+    meta.appendChild(dateDiv);
+  }
+
+  if (Number.isFinite(distance)) {
+    const distanceDiv = document.createElement('div');
+    distanceDiv.className = 'show-card__tag';
+    distanceDiv.textContent = `${distance.toFixed(0)} miles away`;
+    meta.appendChild(distanceDiv);
+  }
+
+  if (meta.childElementCount > 0) {
+    header.appendChild(meta);
+  }
+
+  content.appendChild(header);
+
+  const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
+  if (locParts.length > 0) {
+    const locDiv = document.createElement('div');
+    locDiv.className = 'show-card__location';
+    locDiv.textContent = locParts.join(' · ');
+    content.appendChild(locDiv);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'show-card__actions';
+
+  const interestedBtn = document.createElement('button');
+  interestedBtn.type = 'button';
+  interestedBtn.className = 'show-card__button';
+  if (status === 'interested') {
+    interestedBtn.classList.add('is-active');
+    interestedBtn.setAttribute('aria-pressed', 'true');
+  } else {
+    interestedBtn.setAttribute('aria-pressed', 'false');
+  }
+  interestedBtn.textContent = 'Interested';
+  interestedBtn.addEventListener('click', () => {
+    const nextStatus = status === 'interested' ? null : 'interested';
+    updateShowStatus(item.id, nextStatus);
+  });
+  actions.appendChild(interestedBtn);
+
+  const notInterestedBtn = document.createElement('button');
+  notInterestedBtn.type = 'button';
+  notInterestedBtn.className = 'show-card__button show-card__button--secondary';
+  const isDismissed = status === 'notInterested';
+  notInterestedBtn.textContent = isDismissed ? 'Undo Not Interested' : 'Not Interested';
+  if (isDismissed) {
+    notInterestedBtn.classList.add('is-active');
+  }
+  notInterestedBtn.addEventListener('click', () => {
+    const nextStatus = isDismissed ? null : 'notInterested';
+    updateShowStatus(item.id, nextStatus);
+  });
+  actions.appendChild(notInterestedBtn);
+
+  content.appendChild(actions);
+
+  if (event.url) {
+    const link = document.createElement('a');
+    link.href = event.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'show-card__cta';
+    link.textContent = 'Get Tickets';
+    content.appendChild(link);
+  }
+
+  li.appendChild(content);
+  return li;
 }
 
 export async function initShowsPanel() {
@@ -311,6 +539,7 @@ export async function initShowsPanel() {
             `${artist.id || artist.name || 'artist'}-${ev.url || ev.name || eventCounter}`;
           if (!eventsMap.has(eventKey)) {
             eventsMap.set(eventKey, {
+              id: eventKey,
               event: ev,
               venue,
               distance,
@@ -319,10 +548,7 @@ export async function initShowsPanel() {
           }
         }
       }
-      listEl.innerHTML = '';
       if (eventsMap.size > 0) {
-        const ul = document.createElement('ul');
-        ul.className = 'shows-grid';
         const events = Array.from(eventsMap.values());
         if (cachedUserLocation) {
           events.sort((a, b) => {
@@ -335,70 +561,13 @@ export async function initShowsPanel() {
             return aDist - bDist;
           });
         }
-        for (const { event, venue, distance } of events) {
-          const li = document.createElement('li');
-          li.className = 'show-card';
-          const imageUrl =
-            event.images?.find(image => image.ratio === '16_9')?.url || event.images?.[0]?.url;
-          if (imageUrl) {
-            const imageWrapper = document.createElement('div');
-            imageWrapper.className = 'show-card__media';
-            const img = document.createElement('img');
-            img.src = imageUrl;
-            img.alt = `${event.name || 'Event'} poster`;
-            img.loading = 'lazy';
-            imageWrapper.appendChild(img);
-            li.appendChild(imageWrapper);
-          }
-          const content = document.createElement('div');
-          content.className = 'show-card__content';
-          const header = document.createElement('header');
-          header.className = 'show-card__header';
-          const nameHeading = document.createElement('h3');
-          nameHeading.className = 'show-card__title';
-          nameHeading.textContent = event.name || 'Unnamed event';
-          header.appendChild(nameHeading);
-          const meta = document.createElement('div');
-          meta.className = 'show-card__meta';
-          const locParts = [venue?.name, venue?.city?.name, venue?.state?.stateCode].filter(Boolean);
-          const date = event.dates?.start?.localDate;
-          if (date) {
-            const dateDiv = document.createElement('div');
-            dateDiv.className = 'show-card__date';
-            dateDiv.textContent = formatEventDate(event.dates?.start);
-            meta.appendChild(dateDiv);
-          }
-          if (Number.isFinite(distance)) {
-            const distanceDiv = document.createElement('div');
-            distanceDiv.className = 'show-card__tag';
-            distanceDiv.textContent = `${distance.toFixed(0)} miles away`;
-            meta.appendChild(distanceDiv);
-          }
-          if (meta.childElementCount > 0) {
-            header.appendChild(meta);
-          }
-          content.appendChild(header);
-          if (locParts.length > 0) {
-            const locDiv = document.createElement('div');
-            locDiv.className = 'show-card__location';
-            locDiv.textContent = locParts.join(' · ');
-            content.appendChild(locDiv);
-          }
-          if (event.url) {
-            const link = document.createElement('a');
-            link.href = event.url;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.className = 'show-card__cta';
-            link.textContent = 'Get Tickets';
-            content.appendChild(link);
-          }
-          li.appendChild(content);
-          ul.appendChild(li);
-        }
-        listEl.appendChild(ul);
+        currentShows = events;
+        showsEmptyReason = null;
+        renderShowsList();
       } else {
-        listEl.textContent = 'No nearby shows within 300 miles.';
+        currentShows = [];
+        showsEmptyReason = 'noNearby';
+        renderShowsList();
       }
     } catch (err) {
       console.error('Failed to load shows', err);

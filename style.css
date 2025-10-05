@@ -674,6 +674,64 @@ button:hover {
   gap: 0.4rem;
 }
 
+.show-card__status {
+  align-self: flex-start;
+  background: linear-gradient(135deg, #2f7f70, #3fa284);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.show-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.show-card__button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2f7f70, #3fa284);
+  color: #ffffff;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.show-card__button:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.show-card__button.is-active {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+.show-card__button--secondary {
+  background: #e8f3ef;
+  color: #1f4a40;
+}
+
+.show-card__button--secondary:hover {
+  filter: none;
+  background: #d4ebe3;
+}
+
+.show-card__button--secondary.is-active {
+  background: #c4e1d8;
+}
+
+.show-card--interested {
+  border-color: #88d5bc;
+  box-shadow: 0 12px 24px rgba(55, 150, 125, 0.18);
+}
+
 .show-card__cta {
   align-self: flex-start;
   margin-top: 0.25rem;
@@ -689,6 +747,49 @@ button:hover {
 
 .show-card__cta:hover {
   filter: brightness(1.05);
+}
+
+.shows-dismissed {
+  margin-top: 2rem;
+  border: 1px solid #d5e7df;
+  border-radius: 14px;
+  background: #f3fbf7;
+  padding: 0.75rem 1rem 1rem;
+}
+
+.shows-dismissed__summary {
+  cursor: pointer;
+  list-style: none;
+  color: #1f4a40;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.shows-dismissed__summary:focus-visible {
+  outline: 2px solid #3fa284;
+  border-radius: 8px;
+}
+
+.shows-dismissed__summary::-webkit-details-marker {
+  display: none;
+}
+
+.shows-dismissed__summary::after {
+  content: '▾';
+  font-size: 0.85rem;
+  color: #3d5f58;
+  transition: transform 0.2s ease;
+}
+
+.shows-dismissed[open] .shows-dismissed__summary::after {
+  transform: rotate(180deg);
+}
+
+.shows-grid--dismissed {
+  margin-top: 1rem;
 }
 
 .shows-empty {

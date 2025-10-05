@@ -85,6 +85,7 @@ describe('initShowsPanel', () => {
     expect(fetch.mock.calls[2][0]).not.toContain('apiKey=');
     expect(document.querySelector('.show-card__title')?.textContent).toContain('Concert');
     expect(document.querySelector('.show-card__cta')?.textContent).toBe('Get Tickets');
+    expect(document.querySelectorAll('.show-card__button').length).toBe(2);
   });
 
   it('only shows events within 300 miles of the user', async () => {
@@ -141,6 +142,125 @@ describe('initShowsPanel', () => {
 
     const cards = Array.from(document.querySelectorAll('.show-card__title')).map(el => el.textContent);
     expect(cards).toEqual(['Austin Gig']);
+  });
+
+  it('lets the user mark a show as interested', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'The Band' }] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          _embedded: {
+            events: [
+              {
+                id: 'event1',
+                name: 'Club Night',
+                dates: { start: { localDate: '2024-04-01' } },
+                _embedded: {
+                  venues: [
+                    {
+                      name: 'The Club',
+                      city: { name: 'Austin' },
+                      state: { stateCode: 'TX' },
+                      location: { latitude: '30.2669', longitude: '-97.7428' }
+                    }
+                  ]
+                },
+                url: 'http://example.com/club'
+              }
+            ]
+          }
+        })
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+    await flush();
+
+    const interestedBtn = document.querySelector('.show-card__button');
+    interestedBtn.dispatchEvent(new window.Event('click'));
+
+    await flush();
+
+    expect(document.querySelector('.show-card--interested')).not.toBeNull();
+    const prefsAfterInterest = JSON.parse(localStorage.getItem('showsPreferences') || '{}');
+    expect(prefsAfterInterest).toMatchObject({
+      event1: { status: 'interested' }
+    });
+
+    interestedBtn.dispatchEvent(new window.Event('click'));
+    await flush();
+
+    expect(document.querySelector('.show-card--interested')).toBeNull();
+  });
+
+  it('moves not interested shows into a collapsible section', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          _embedded: {
+            events: [
+              {
+                id: 'event1',
+                name: 'Club Night',
+                dates: { start: { localDate: '2024-04-01' } },
+                _embedded: {
+                  venues: [
+                    {
+                      name: 'The Club',
+                      city: { name: 'Austin' },
+                      state: { stateCode: 'TX' },
+                      location: { latitude: '30.2669', longitude: '-97.7428' }
+                    }
+                  ]
+                },
+                url: 'http://example.com/club'
+              },
+              {
+                id: 'event2',
+                name: 'Outdoor Fest',
+                dates: { start: { localDate: '2024-05-10' } },
+                _embedded: {
+                  venues: [
+                    {
+                      name: 'Zilker Park',
+                      city: { name: 'Austin' },
+                      state: { stateCode: 'TX' },
+                      location: { latitude: '30.2669', longitude: '-97.7428' }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        })
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+    await flush();
+
+    const notInterestedBtn = document.querySelector('.show-card__button--secondary');
+    notInterestedBtn.dispatchEvent(new window.Event('click'));
+    await flush();
+
+    expect(document.querySelectorAll('.show-card').length).toBe(2);
+    const summary = document.querySelector('.shows-dismissed__summary');
+    expect(summary).not.toBeNull();
+    expect(summary.textContent).toContain('Not Interested (1)');
+    expect(document.querySelectorAll('.shows-dismissed .show-card').length).toBe(1);
+
+    const dismissedButton = document.querySelector('.shows-dismissed .show-card__button--secondary');
+    dismissedButton.dispatchEvent(new window.Event('click'));
+    await flush();
+
+    expect(document.querySelector('.shows-dismissed')).toBeNull();
+    const prefsAfterUndo = JSON.parse(localStorage.getItem('showsPreferences') || '{}');
+    expect(prefsAfterUndo).toEqual({});
   });
 
   it('stores credentials and cached values during OAuth flow', async () => {
