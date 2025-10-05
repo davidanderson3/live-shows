@@ -38,6 +38,103 @@ const SHOW_PREFS_STORAGE_KEY = 'showsPreferences';
 let currentShows = [];
 let showsEmptyReason = null;
 
+const TICKETMASTER_CACHE_STORAGE_KEY = 'ticketmasterCacheV1';
+const TICKETMASTER_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+const MAX_TICKETMASTER_CACHE_ENTRIES = 50;
+
+function normalizeTicketmasterCacheKey(keyword) {
+  return (keyword || '').toLowerCase().trim();
+}
+
+function loadTicketmasterCache() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(TICKETMASTER_CACHE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    console.warn('Unable to load Ticketmaster cache', err);
+    return {};
+  }
+}
+
+function saveTicketmasterCache(cache) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(TICKETMASTER_CACHE_STORAGE_KEY, JSON.stringify(cache));
+  } catch (err) {
+    console.warn('Unable to persist Ticketmaster cache', err);
+  }
+}
+
+const ticketmasterCache = loadTicketmasterCache();
+const ticketmasterMemoryCache = new Map();
+
+function ticketmasterCacheKey(keyword, scope = 'server') {
+  const normalized = normalizeTicketmasterCacheKey(keyword);
+  return normalized ? `${scope}:${normalized}` : '';
+}
+
+function getCachedTicketmasterResponse(keyword, scope = 'server') {
+  const key = ticketmasterCacheKey(keyword, scope);
+  if (!key) return null;
+
+  const now = Date.now();
+  const memoryEntry = ticketmasterMemoryCache.get(key);
+  if (memoryEntry && now - memoryEntry.timestamp < TICKETMASTER_CACHE_TTL) {
+    return memoryEntry.data;
+  }
+
+  const storedEntry = ticketmasterCache[key];
+  if (storedEntry && now - storedEntry.timestamp < TICKETMASTER_CACHE_TTL) {
+    ticketmasterMemoryCache.set(key, storedEntry);
+    return storedEntry.data;
+  }
+
+  return null;
+}
+
+function setCachedTicketmasterResponse(keyword, data, scope = 'server') {
+  const key = ticketmasterCacheKey(keyword, scope);
+  if (!key) return;
+  const entry = { timestamp: Date.now(), data };
+  ticketmasterMemoryCache.set(key, entry);
+  if (typeof localStorage === 'undefined') return;
+  ticketmasterCache[key] = entry;
+
+  const keys = Object.keys(ticketmasterCache);
+  const now = Date.now();
+  for (const existingKey of keys) {
+    if (now - ticketmasterCache[existingKey].timestamp >= TICKETMASTER_CACHE_TTL) {
+      delete ticketmasterCache[existingKey];
+    }
+  }
+
+  const remainingKeys = Object.keys(ticketmasterCache);
+  if (remainingKeys.length > MAX_TICKETMASTER_CACHE_ENTRIES) {
+    remainingKeys
+      .sort((a, b) => ticketmasterCache[a].timestamp - ticketmasterCache[b].timestamp)
+      .slice(0, remainingKeys.length - MAX_TICKETMASTER_CACHE_ENTRIES)
+      .forEach((oldKey) => {
+        delete ticketmasterCache[oldKey];
+      });
+  }
+
+  saveTicketmasterCache(ticketmasterCache);
+}
+
+function getStaleTicketmasterResponse(keyword, scope = 'server') {
+  const key = ticketmasterCacheKey(keyword, scope);
+  if (!key) return null;
+  const memoryEntry = ticketmasterMemoryCache.get(key);
+  if (memoryEntry) {
+    return memoryEntry.data;
+  }
+  const storedEntry = ticketmasterCache[key];
+  return storedEntry?.data || null;
+}
+
 function toRadians(deg) {
   return (deg * Math.PI) / 180;
 }
@@ -334,7 +431,8 @@ function createShowCard(item) {
   }
   interestedBtn.textContent = 'Interested';
   interestedBtn.addEventListener('click', () => {
-    const nextStatus = status === 'interested' ? null : 'interested';
+    const currentStatus = getShowStatus(item.id);
+    const nextStatus = currentStatus === 'interested' ? null : 'interested';
     updateShowStatus(item.id, nextStatus);
   });
   actions.appendChild(interestedBtn);
@@ -348,7 +446,8 @@ function createShowCard(item) {
     notInterestedBtn.classList.add('is-active');
   }
   notInterestedBtn.addEventListener('click', () => {
-    const nextStatus = isDismissed ? null : 'notInterested';
+    const currentStatus = getShowStatus(item.id);
+    const nextStatus = currentStatus === 'notInterested' ? null : 'notInterested';
     updateShowStatus(item.id, nextStatus);
   });
   actions.appendChild(notInterestedBtn);
@@ -591,9 +690,26 @@ export async function initShowsPanel() {
         if (requiresManualApiKey) {
           tmUrl.searchParams.set('apiKey', manualApiKey);
         }
-        const res = await fetch(tmUrl.toString());
-        if (!res.ok) continue;
-        const data = await res.json();
+        const cacheScope = requiresManualApiKey ? 'manual' : 'server';
+        let data = getCachedTicketmasterResponse(artist.name, cacheScope);
+        if (!data) {
+          const res = await fetch(tmUrl.toString());
+          if (!res.ok) {
+            if (res.status === 429) {
+              console.warn('Ticketmaster rate limit reached for', artist.name);
+              data = getStaleTicketmasterResponse(artist.name, cacheScope);
+              if (!data) {
+                continue;
+              }
+            } else {
+              continue;
+            }
+          }
+          if (!data) {
+            data = await res.json();
+            setCachedTicketmasterResponse(artist.name, data, cacheScope);
+          }
+        }
         const events = data._embedded?.events;
         if (!Array.isArray(events)) continue;
         for (const ev of events) {
