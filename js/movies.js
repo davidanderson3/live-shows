@@ -7,6 +7,7 @@ const MAX_DISCOVER_PAGES = 3;
 const PREF_COLLECTION = 'moviePreferences';
 const MIN_VOTE_AVERAGE = 7;
 const MIN_VOTE_COUNT = 50;
+const MIN_PRIORITY_RESULTS = 12;
 
 const DEFAULT_TMDB_PROXY_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
@@ -36,12 +37,12 @@ const handlers = {
   handleChange: null
 };
 
-function meetsQualityThreshold(movie) {
+function meetsQualityThreshold(movie, minAverage = MIN_VOTE_AVERAGE, minVotes = MIN_VOTE_COUNT) {
   if (!movie || typeof movie !== 'object') return false;
   const average = Number(movie.vote_average ?? 0);
   const votes = Number(movie.vote_count ?? 0);
   if (!Number.isFinite(average) || !Number.isFinite(votes)) return false;
-  return average >= MIN_VOTE_AVERAGE && votes >= MIN_VOTE_COUNT;
+  return average >= minAverage && votes >= minVotes;
 }
 
 function loadLocalPrefs() {
@@ -450,17 +451,49 @@ function refreshUI() {
   renderWatchedList();
 }
 
+function selectPriorityCandidates(movies) {
+  if (!Array.isArray(movies) || !movies.length) return [];
+
+  const thresholds = [
+    { minAverage: MIN_VOTE_AVERAGE, minVotes: MIN_VOTE_COUNT },
+    {
+      minAverage: Math.max(6.5, MIN_VOTE_AVERAGE - 0.5),
+      minVotes: Math.max(25, Math.floor(MIN_VOTE_COUNT / 2))
+    },
+    { minAverage: 6, minVotes: 10 }
+  ];
+
+  let bestFallback = [];
+  for (const { minAverage, minVotes } of thresholds) {
+    const filtered = movies.filter(movie => meetsQualityThreshold(movie, minAverage, minVotes));
+    if (filtered.length >= MIN_PRIORITY_RESULTS) {
+      return filtered;
+    }
+    if (filtered.length > bestFallback.length) {
+      bestFallback = filtered;
+    }
+  }
+
+  if (bestFallback.length) return bestFallback;
+
+  return movies.filter(movie => {
+    const average = Number(movie?.vote_average ?? NaN);
+    const votes = Number(movie?.vote_count ?? NaN);
+    return Number.isFinite(average) && Number.isFinite(votes);
+  });
+}
+
 function applyPriorityOrdering(movies) {
   if (!Array.isArray(movies) || !movies.length) return movies || [];
 
-  const filtered = movies.filter(meetsQualityThreshold);
-  if (!filtered.length) return [];
+  const candidates = selectPriorityCandidates(movies);
+  if (!candidates.length) return [];
 
-  const maxVotes = Math.max(...filtered.map(m => Math.max(0, m.vote_count || 0)), 1);
+  const maxVotes = Math.max(...candidates.map(m => Math.max(0, m.vote_count || 0)), 1);
   const now = Date.now();
   const yearMs = 365 * 24 * 60 * 60 * 1000;
 
-  return filtered
+  return candidates
     .map(movie => {
       const rawAverage = Math.max(0, Math.min(10, movie.vote_average ?? 0)) / 10;
       const votes = Math.max(0, movie.vote_count || 0);
