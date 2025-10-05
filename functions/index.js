@@ -4,8 +4,19 @@ const DEFAULT_REGION = 'us-central1';
 const TMDB_BASE_URL = 'https://api.themoviedb.org';
 
 const ALLOWED_ENDPOINTS = {
-  discover: '/3/discover/movie',
-  genres: '/3/genre/movie/list'
+  discover: { path: '/3/discover/movie' },
+  genres: { path: '/3/genre/movie/list' },
+  credits: {
+    path: query => {
+      const rawId = query?.movie_id;
+      const value = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!value && value !== 0) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed) return null;
+      return `/3/movie/${encodeURIComponent(trimmed)}/credits`;
+    },
+    omitParams: ['movie_id']
+  }
 };
 
 function getTmdbApiKey() {
@@ -38,10 +49,24 @@ exports.tmdbProxy = functions
     }
 
     const endpointKey = String(req.query.endpoint || 'discover');
-    const targetPath = ALLOWED_ENDPOINTS[endpointKey];
+    const endpointConfig = ALLOWED_ENDPOINTS[endpointKey];
+
+    if (!endpointConfig) {
+      res.status(400).json({ error: 'unsupported_endpoint' });
+      return;
+    }
+
+    let targetPath = null;
+    if (typeof endpointConfig === 'string') {
+      targetPath = endpointConfig;
+    } else if (endpointConfig && typeof endpointConfig.path === 'function') {
+      targetPath = endpointConfig.path(req.query || {});
+    } else if (endpointConfig && endpointConfig.path) {
+      targetPath = endpointConfig.path;
+    }
 
     if (!targetPath) {
-      res.status(400).json({ error: 'unsupported_endpoint' });
+      res.status(400).json({ error: 'invalid_endpoint_params' });
       return;
     }
 
@@ -53,8 +78,13 @@ exports.tmdbProxy = functions
     }
 
     const params = new URLSearchParams();
+    const omitParams = new Set(['endpoint', 'api_key']);
+    if (endpointConfig && Array.isArray(endpointConfig.omitParams)) {
+      endpointConfig.omitParams.forEach(param => omitParams.add(param));
+    }
+
     for (const [key, value] of Object.entries(req.query || {})) {
-      if (key === 'endpoint' || key === 'api_key') continue;
+      if (omitParams.has(key)) continue;
       if (Array.isArray(value)) {
         value.forEach(v => params.append(key, String(v)));
       } else if (value !== undefined) {

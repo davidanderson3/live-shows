@@ -106,9 +106,19 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [
+        { name: 'Lead Star' },
+        { name: 'Supporting Actor' }
+      ],
+      crew: [
+        { job: 'Director', name: 'Jane Doe' },
+        { job: 'Producer', name: 'Producer Person' }
+      ]
+    };
     const genres = { genres: [{ id: 28, name: 'Action' }] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -117,7 +127,10 @@ describe('initMoviesPanel', () => {
     expect(card.textContent).toContain('Sample Movie');
     expect(card.textContent).toContain('Average Score: 7.5');
     expect(card.textContent).toContain('Votes: 120');
-    expect(card.querySelector('.movie-meta')?.textContent).toContain('Genres: Action');
+    const metaText = card.querySelector('.movie-meta')?.textContent || '';
+    expect(metaText).toContain('Genres: Action');
+    expect(metaText).toContain('Director: Jane Doe');
+    expect(metaText).toContain('Cast: Lead Star, Supporting Actor');
 
     const buttons = Array.from(card.querySelectorAll('button')).map(b => b.textContent);
     expect(buttons).toEqual(['Watched Already', 'Not Interested', 'Interested']);
@@ -163,9 +176,13 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Award Winner' }],
+      crew: [{ job: 'Director', name: 'Visionary Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -204,9 +221,17 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const creditsHigh = {
+      cast: [{ name: 'Popular Lead' }],
+      crew: [{ job: 'Director', name: 'High Director' }]
+    };
+    const creditsLow = {
+      cast: [{ name: 'Indie Lead' }],
+      crew: [{ job: 'Director', name: 'Low Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, creditsHigh, creditsLow, genres]);
 
     await initMoviesPanel();
 
@@ -235,9 +260,13 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Breakout Star' }],
+      crew: [{ job: 'Director', name: 'Indie Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -263,6 +292,8 @@ describe('initMoviesPanel', () => {
     expect(label?.textContent).toBe('Interest: 5');
     const stored = JSON.parse(global.localStorage.getItem('moviePreferences'));
     expect(stored['2'].interest).toBe(5);
+    const meta = document.querySelector('#savedMoviesList .movie-meta')?.textContent || '';
+    expect(meta).toContain('Director: Indie Director');
   });
 
   it('routes movie requests through the Cloud Function proxy', async () => {
@@ -284,9 +315,13 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Proxy Star' }],
+      crew: [{ job: 'Director', name: 'Proxy Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
     const calledUrls = fetch.mock.calls.map(args => args[0]);
@@ -294,6 +329,7 @@ describe('initMoviesPanel', () => {
     expect(calledUrls.every(url => String(url).startsWith('https://mock-functions.net/tmdbProxy'))).toBe(true);
     expect(calledUrls.some(url => String(url).includes('endpoint=discover'))).toBe(true);
     expect(calledUrls.some(url => String(url).includes('endpoint=genres'))).toBe(true);
+    expect(calledUrls.some(url => String(url).includes('endpoint=credits'))).toBe(true);
     expect(calledUrls.some(url => String(url).includes('api_key='))).toBe(false);
     expect(global.localStorage.getItem('moviesApiKey')).toBeNull();
   });
@@ -317,9 +353,13 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Iconic Star' }],
+      crew: [{ job: 'Director', name: 'Famed Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -361,9 +401,13 @@ describe('initMoviesPanel', () => {
       ]
     };
     const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Remote Star' }],
+      crew: [{ job: 'Director', name: 'Remote Director' }]
+    };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, genres]);
+    configureFetchResponses([page, empty, empty, credits, genres]);
 
     await initMoviesPanel();
 
