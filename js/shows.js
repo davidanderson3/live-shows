@@ -148,63 +148,103 @@ function getShowStatus(id) {
 
 function renderShowsList() {
   const listEl = document.getElementById('ticketmasterList');
-  if (!listEl) return;
+  const interestedEl = document.getElementById('ticketmasterInterestedList');
+  if (!listEl && !interestedEl) return;
 
-  listEl.innerHTML = '';
+  if (listEl) {
+    listEl.innerHTML = '';
+  }
+  if (interestedEl) {
+    interestedEl.innerHTML = '';
+  }
 
   if (!currentShows.length) {
-    const emptyMessage =
-      showsEmptyReason === 'noNearby'
-        ? 'No nearby shows within 300 miles.'
-        : 'No shows available right now.';
-    const emptyEl = document.createElement('p');
-    emptyEl.className = 'shows-empty';
-    emptyEl.textContent = emptyMessage;
-    listEl.appendChild(emptyEl);
+    if (listEl) {
+      const emptyMessage =
+        showsEmptyReason === 'noNearby'
+          ? 'No nearby shows within 300 miles.'
+          : 'No shows available right now.';
+      const emptyEl = document.createElement('p');
+      emptyEl.className = 'shows-empty';
+      emptyEl.textContent = emptyMessage;
+      listEl.appendChild(emptyEl);
+    }
+    if (interestedEl) {
+      const emptyInterested = document.createElement('p');
+      emptyInterested.className = 'shows-empty';
+      emptyInterested.textContent = 'No saved live music events yet.';
+      interestedEl.appendChild(emptyInterested);
+    }
     return;
   }
 
   const active = [];
   const dismissed = [];
+  const interested = [];
   for (const item of currentShows) {
     const status = getShowStatus(item.id);
-    const target = status === 'notInterested' ? dismissed : active;
-    target.push({ ...item, status });
+    const enriched = { ...item, status };
+    if (status === 'interested') {
+      interested.push(enriched);
+    }
+    if (status === 'notInterested') {
+      dismissed.push(enriched);
+    } else {
+      active.push(enriched);
+    }
   }
 
-  if (active.length) {
-    const activeList = document.createElement('ul');
-    activeList.className = 'shows-grid';
-    for (const item of active) {
-      activeList.appendChild(createShowCard(item));
+  if (listEl) {
+    if (active.length) {
+      const activeList = document.createElement('ul');
+      activeList.className = 'shows-grid';
+      for (const item of active) {
+        activeList.appendChild(createShowCard(item));
+      }
+      listEl.appendChild(activeList);
+    } else {
+      const noActive = document.createElement('p');
+      noActive.className = 'shows-empty';
+      noActive.textContent = dismissed.length
+        ? 'No other shows right now. Review ones you previously skipped below.'
+        : 'No nearby shows within 300 miles.';
+      listEl.appendChild(noActive);
     }
-    listEl.appendChild(activeList);
-  } else {
-    const noActive = document.createElement('p');
-    noActive.className = 'shows-empty';
-    noActive.textContent = dismissed.length
-      ? 'No other shows right now. Review ones you previously skipped below.'
-      : 'No nearby shows within 300 miles.';
-    listEl.appendChild(noActive);
+
+    if (dismissed.length) {
+      const dismissedSection = document.createElement('details');
+      dismissedSection.className = 'shows-dismissed';
+
+      const summary = document.createElement('summary');
+      summary.className = 'shows-dismissed__summary';
+      summary.textContent = `Not Interested (${dismissed.length})`;
+      dismissedSection.appendChild(summary);
+
+      const dismissedList = document.createElement('ul');
+      dismissedList.className = 'shows-grid shows-grid--dismissed';
+      for (const item of dismissed) {
+        dismissedList.appendChild(createShowCard(item));
+      }
+      dismissedSection.appendChild(dismissedList);
+
+      listEl.appendChild(dismissedSection);
+    }
   }
 
-  if (dismissed.length) {
-    const dismissedSection = document.createElement('details');
-    dismissedSection.className = 'shows-dismissed';
-
-    const summary = document.createElement('summary');
-    summary.className = 'shows-dismissed__summary';
-    summary.textContent = `Not Interested (${dismissed.length})`;
-    dismissedSection.appendChild(summary);
-
-    const dismissedList = document.createElement('ul');
-    dismissedList.className = 'shows-grid shows-grid--dismissed';
-    for (const item of dismissed) {
-      dismissedList.appendChild(createShowCard(item));
+  if (interestedEl) {
+    if (interested.length) {
+      const interestedList = document.createElement('ul');
+      interestedList.className = 'shows-grid';
+      for (const item of interested) {
+        interestedList.appendChild(createShowCard(item));
+      }
+      interestedEl.appendChild(interestedList);
+    } else {
+      const emptyInterested = document.createElement('p');
+      emptyInterested.className = 'shows-empty';
+      emptyInterested.textContent = 'No saved live music events yet. Mark events as Interested to add them here.';
+      interestedEl.appendChild(emptyInterested);
     }
-    dismissedSection.appendChild(dismissedList);
-
-    listEl.appendChild(dismissedSection);
   }
 }
 
@@ -332,10 +372,39 @@ function createShowCard(item) {
 export async function initShowsPanel() {
   const listEl = document.getElementById('ticketmasterList');
   if (!listEl) return;
+  const interestedListEl = document.getElementById('ticketmasterInterestedList');
   const tokenBtn = document.getElementById('spotifyTokenBtn');
   const tokenInput = document.getElementById('spotifyToken');
   const statusEl = document.getElementById('spotifyStatus');
   const apiKeyInput = document.getElementById('ticketmasterApiKey');
+  const tabsContainer = document.getElementById('showsTabs');
+
+  if (tabsContainer) {
+    const tabButtons = Array.from(tabsContainer.querySelectorAll('.shows-tab'));
+    const sections = new Map(
+      tabButtons.map(btn => [btn.dataset.target, document.getElementById(btn.dataset.target)])
+    );
+    tabButtons.forEach(btn => {
+      if (btn._showsTabHandler) {
+        btn.removeEventListener('click', btn._showsTabHandler);
+      }
+      const handler = () => {
+        tabButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        sections.forEach((section, id) => {
+          if (!section) return;
+          section.style.display = id === btn.dataset.target ? '' : 'none';
+        });
+      };
+      btn._showsTabHandler = handler;
+      btn.addEventListener('click', handler);
+    });
+    const initialTab =
+      tabButtons.find(btn => btn.classList.contains('active')) || tabButtons[0];
+    if (initialTab?._showsTabHandler) {
+      initialTab._showsTabHandler();
+    }
+  }
 
   let spotifyClientId = '';
   let serverHasTicketmasterKey = false;
@@ -350,7 +419,16 @@ export async function initShowsPanel() {
     console.error('Failed to fetch Spotify client ID', err);
   }
   if (!spotifyClientId) {
-    listEl.textContent = 'Spotify client ID not configured.';
+    if (listEl) {
+      listEl.textContent = 'Spotify client ID not configured.';
+    }
+    if (interestedListEl) {
+      interestedListEl.innerHTML = '';
+      const warning = document.createElement('p');
+      warning.className = 'shows-empty';
+      warning.textContent = 'Spotify client ID not configured.';
+      interestedListEl.appendChild(warning);
+    }
     return;
   }
 
@@ -385,6 +463,13 @@ export async function initShowsPanel() {
   const startAuth = async () => {
     if (!spotifyClientId) {
       listEl.textContent = 'Spotify client ID not configured.';
+      if (interestedListEl) {
+        interestedListEl.innerHTML = '';
+        const warning = document.createElement('p');
+        warning.className = 'shows-empty';
+        warning.textContent = 'Spotify client ID not configured.';
+        interestedListEl.appendChild(warning);
+      }
       return;
     }
     const verifier = randomString(64);
