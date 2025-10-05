@@ -130,8 +130,19 @@
             <h2>Restaurants</h2>
             <button type="button" class="icon-btn tab-hide-btn" title="Hide Tab">🕒</button>
           </div>
-      <p style="margin-bottom:1rem; font-size:0.95rem;">Discover the highest-rated spots around you powered by Yelp Fusion.</p>
-      <div id="restaurantsResults" class="decision-container" aria-live="polite"></div>
+      <div class="restaurants-hero">
+        <p>Discover the highest-rated spots around you, complete with a live map powered by Yelp Fusion.</p>
+        <p class="restaurants-tip">Use the map to orient yourself and tap the actions on each card to call ahead or get directions.</p>
+      </div>
+      <div class="restaurants-layout">
+        <div
+          id="restaurantsMap"
+          class="restaurants-map"
+          role="img"
+          aria-label="Map showing nearby restaurant locations"
+        ></div>
+        <div id="restaurantsResults" class="restaurants-list decision-container" aria-live="polite"></div>
+      </div>
     </div>
   </div>
 
@@ -177,6 +188,7 @@
     </div>
   </div>
   <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script type="module" src="js/main.js"></script>
   <script type="module" src="js/movies.js"></script>
   <script type="module" src="js/shows.js"></script>
