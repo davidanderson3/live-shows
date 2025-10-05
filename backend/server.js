@@ -159,12 +159,16 @@ app.get('/api/spotify-client-id', (req, res) => {
 });
 
 app.get('/api/restaurants', async (req, res) => {
-  const { city, cuisine = '', latitude, longitude } = req.query || {};
+  const { city, cuisine = '' } = req.query || {};
+  const rawLatitude = req.query?.latitude;
+  const rawLongitude = req.query?.longitude;
+  const latitude = typeof rawLatitude === 'string' ? Number(rawLatitude) : Number(rawLatitude);
+  const longitude = typeof rawLongitude === 'string' ? Number(rawLongitude) : Number(rawLongitude);
   const yelpKey = req.get('x-api-key') || req.query.apiKey || process.env.YELP_API_KEY;
   if (!yelpKey) {
     return res.status(500).json({ error: 'missing yelp api key' });
   }
-  const hasCoords = latitude && longitude;
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
   if (!city && !hasCoords) {
     return res.status(400).json({ error: 'missing location' });
   }
@@ -181,6 +185,7 @@ app.get('/api/restaurants', async (req, res) => {
     params.delete('location');
     params.set('latitude', String(latitude));
     params.set('longitude', String(longitude));
+    params.set('location', `${latitude},${longitude}`);
   }
   if (cuisine) {
     params.set('term', String(cuisine));

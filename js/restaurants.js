@@ -126,9 +126,16 @@ function renderResults(container, items) {
 
 async function fetchRestaurants({ latitude, longitude }) {
   const params = new URLSearchParams();
-  if (latitude && longitude) {
-    params.set('latitude', String(latitude));
-    params.set('longitude', String(longitude));
+  const parsedLatitude =
+    typeof latitude === 'string' ? Number(latitude) : latitude;
+  const parsedLongitude =
+    typeof longitude === 'string' ? Number(longitude) : longitude;
+  const hasLatitude = Number.isFinite(parsedLatitude);
+  const hasLongitude = Number.isFinite(parsedLongitude);
+
+  if (hasLatitude && hasLongitude) {
+    params.set('latitude', String(parsedLatitude));
+    params.set('longitude', String(parsedLongitude));
   }
 
   const base = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : '';
