@@ -124,11 +124,46 @@ function renderResults(container, items) {
   container.appendChild(ul);
 }
 
-async function fetchRestaurants({ latitude, longitude }) {
+async function reverseGeocodeCity(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(latitude),
+    lon: String(longitude)
+  });
+  const url = `https://nominatim.openstreetmap.org/reverse?${params.toString()}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    const address = data?.address || {};
+    return (
+      address.city ||
+      address.town ||
+      address.village ||
+      address.municipality ||
+      address.locality ||
+      address.county ||
+      ''
+    );
+  } catch (err) {
+    console.warn('Reverse geocoding failed', err);
+    return '';
+  }
+}
+
+async function fetchRestaurants({ latitude, longitude, city }) {
   const params = new URLSearchParams();
   if (latitude && longitude) {
     params.set('latitude', String(latitude));
     params.set('longitude', String(longitude));
+  }
+  if (city) {
+    params.set('city', String(city));
   }
 
   const base = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : '';
@@ -173,7 +208,8 @@ async function loadNearbyRestaurants(container) {
 
   try {
     const { latitude, longitude } = position.coords;
-    const data = await fetchRestaurants({ latitude, longitude });
+    const city = await reverseGeocodeCity(latitude, longitude);
+    const data = await fetchRestaurants({ latitude, longitude, city });
     const sorted = sortByRating(data);
     renderResults(container, sorted);
   } catch (err) {

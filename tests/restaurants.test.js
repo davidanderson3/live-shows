@@ -46,17 +46,25 @@ describe('initRestaurantsPanel', () => {
       { name: 'Top Rated', rating: 4.8, reviewCount: 45 }
     ];
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(sampleData)
-    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(sampleData)
+      });
 
     await initRestaurantsPanel();
 
     expect(geoMock.getCurrentPosition).toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0][0]).toContain('latitude=30.2672');
-    expect(fetch.mock.calls[0][0]).toContain('longitude=-97.7431');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0][0]).toContain('reverse');
+    expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
+    expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
+    expect(fetch.mock.calls[1][0]).toContain('city=Austin');
 
     const results = document.getElementById('restaurantsResults');
     const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
@@ -104,10 +112,16 @@ describe('initRestaurantsPanel', () => {
     });
     global.navigator = window.navigator;
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      json: () => Promise.resolve({ error: 'failed' })
-    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'New York' } })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: 'failed' })
+      });
 
     await initRestaurantsPanel();
 
