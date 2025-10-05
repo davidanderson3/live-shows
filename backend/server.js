@@ -222,6 +222,10 @@ app.get('/api/restaurants', async (req, res) => {
       reviewCount: biz.review_count ?? null,
       price: biz.price || '',
       categories: Array.isArray(biz.categories) ? biz.categories.map(c => c.title).filter(Boolean) : [],
+      latitude:
+        typeof biz.coordinates?.latitude === 'number' ? biz.coordinates.latitude : null,
+      longitude:
+        typeof biz.coordinates?.longitude === 'number' ? biz.coordinates.longitude : null,
       url: biz.url || '',
       distance: typeof biz.distance === 'number' ? biz.distance : null
     }));

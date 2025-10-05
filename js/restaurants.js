@@ -4,13 +4,65 @@ const API_BASE_URL =
   (typeof window !== 'undefined' ? window.location.origin : '');
 
 let initialized = false;
+let mapInstance = null;
+let mapMarkersLayer = null;
+
+function ensureMap() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+  if (typeof window.L === 'undefined') return null;
+  const mapElement = document.getElementById('restaurantsMap');
+  if (!mapElement) return null;
+
+  if (!mapInstance) {
+    mapInstance = window.L.map(mapElement, {
+      scrollWheelZoom: false
+    });
+    window.L
+      .tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      })
+      .addTo(mapInstance);
+  }
+
+  if (!mapMarkersLayer) {
+    mapMarkersLayer = window.L.layerGroup().addTo(mapInstance);
+  }
+
+  setTimeout(() => {
+    try {
+      mapInstance.invalidateSize();
+    } catch {}
+  }, 0);
+
+  return mapInstance;
+}
+
+function clearMap() {
+  if (mapMarkersLayer) {
+    mapMarkersLayer.clearLayers();
+  }
+  const mapElement =
+    typeof document !== 'undefined' ? document.getElementById('restaurantsMap') : null;
+  if (mapElement) {
+    mapElement.classList.add('restaurants-map--empty');
+  }
+  if (mapInstance) {
+    try {
+      mapInstance.setView([39.5, -98.35], 4);
+    } catch {}
+  }
+}
 
 function renderLoading(container) {
-  container.innerHTML = '<em>Loading restaurants...</em>';
+  ensureMap();
+  container.innerHTML = '<div class="restaurants-message">Loading nearby restaurants…</div>';
+  clearMap();
 }
 
 function renderMessage(container, message) {
-  container.innerHTML = `<em>${message}</em>`;
+  ensureMap();
+  container.innerHTML = `<div class="restaurants-message">${message}</div>`;
+  clearMap();
 }
 
 function formatDistance(meters) {
@@ -19,6 +71,223 @@ function formatDistance(meters) {
   if (!Number.isFinite(miles)) return '';
   const precision = miles >= 10 ? 0 : 1;
   return `${miles.toFixed(precision)} mi`;
+}
+
+function formatRating(rating) {
+  const numeric = typeof rating === 'number' ? rating : Number(rating);
+  if (!Number.isFinite(numeric)) return '';
+  return numeric.toFixed(1).replace(/\.0$/, '');
+}
+
+function sanitizePhone(phone) {
+  if (typeof phone !== 'string') return '';
+  const trimmed = phone.trim();
+  if (!trimmed) return '';
+  const digits = trimmed.replace(/[^\d]/g, '');
+  if (!digits) return '';
+  return trimmed.startsWith('+') ? `+${digits}` : digits;
+}
+
+function createRatingBadge(rating, reviewCount) {
+  const displayRating = formatRating(rating);
+  if (!displayRating) return null;
+
+  const badge = document.createElement('span');
+  badge.className = 'rating-badge';
+
+  const icon = document.createElement('span');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '★';
+  badge.appendChild(icon);
+
+  const score = document.createElement('span');
+  score.textContent = displayRating;
+  badge.appendChild(score);
+
+  if (typeof reviewCount === 'number' && reviewCount > 0) {
+    const reviews = document.createElement('span');
+    reviews.textContent = `(${reviewCount})`;
+    badge.appendChild(reviews);
+    badge.setAttribute(
+      'aria-label',
+      `Rated ${displayRating} out of 5 based on ${reviewCount} reviews`
+    );
+    badge.title = `Rated ${displayRating} out of 5 from ${reviewCount} reviews`;
+  } else {
+    badge.setAttribute('aria-label', `Rated ${displayRating} out of 5`);
+    badge.title = `Rated ${displayRating} out of 5`;
+  }
+
+  return badge;
+}
+
+function createAddress(rest) {
+  const lines = [];
+  if (rest.address) lines.push(rest.address);
+
+  const localityParts = [rest.city, rest.state].filter(Boolean).join(', ');
+  const postalLine = [localityParts, rest.zip].filter(Boolean).join(' ');
+  if (postalLine.trim()) lines.push(postalLine.trim());
+
+  if (!lines.length) return null;
+
+  const address = document.createElement('p');
+  address.className = 'restaurant-card__address';
+  lines.forEach((line, index) => {
+    if (!line) return;
+    if (index > 0) {
+      address.appendChild(document.createElement('br'));
+    }
+    address.appendChild(document.createTextNode(line));
+  });
+  return address;
+}
+
+function createMetaList(rest) {
+  const meta = document.createElement('ul');
+  meta.className = 'restaurant-meta';
+
+  if (rest.price) {
+    const price = document.createElement('li');
+    price.textContent = `Price: ${rest.price}`;
+    meta.appendChild(price);
+  }
+
+  if (rest.phone) {
+    const phone = document.createElement('li');
+    phone.textContent = `Phone: ${rest.phone}`;
+    meta.appendChild(phone);
+  }
+
+  return meta.childNodes.length ? meta : null;
+}
+
+function createCuisineChips(rest) {
+  const categories = Array.isArray(rest.categories)
+    ? rest.categories.filter(Boolean)
+    : rest.cuisine
+      ? [rest.cuisine]
+      : [];
+  if (!categories.length) return null;
+
+  const chips = document.createElement('div');
+  chips.className = 'restaurant-chips';
+  categories.slice(0, 6).forEach(category => {
+    const chip = document.createElement('span');
+    chip.className = 'restaurant-chip';
+    chip.textContent = category;
+    chips.appendChild(chip);
+  });
+  return chips;
+}
+
+function createActions(rest) {
+  const actions = document.createElement('div');
+  actions.className = 'restaurant-actions';
+
+  const href = typeof rest.url === 'string' && rest.url
+    ? rest.url
+    : typeof rest.website === 'string'
+      ? rest.website
+      : '';
+  if (href) {
+    const normalized = href.startsWith('http') ? href : `https://${href}`;
+    const websiteLink = document.createElement('a');
+    websiteLink.href = normalized;
+    websiteLink.target = '_blank';
+    websiteLink.rel = 'noopener noreferrer';
+    websiteLink.className = 'restaurant-action';
+    websiteLink.textContent = href.includes('yelp.com') ? 'View on Yelp' : 'View Website';
+    actions.appendChild(websiteLink);
+  }
+
+  const lat = typeof rest.latitude === 'number' ? rest.latitude : Number(rest.latitude);
+  const lng = typeof rest.longitude === 'number' ? rest.longitude : Number(rest.longitude);
+  let directionsHref = '';
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    directionsHref = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  } else if (rest.address) {
+    directionsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      rest.address
+    )}`;
+  }
+  if (directionsHref) {
+    const directions = document.createElement('a');
+    directions.href = directionsHref;
+    directions.target = '_blank';
+    directions.rel = 'noopener noreferrer';
+    directions.className = 'restaurant-action';
+    directions.textContent = 'Directions';
+    actions.appendChild(directions);
+  }
+
+  const phone = sanitizePhone(rest.phone);
+  if (phone) {
+    const call = document.createElement('a');
+    call.href = `tel:${phone}`;
+    call.className = 'restaurant-action';
+    call.textContent = 'Call';
+    actions.appendChild(call);
+  }
+
+  return actions.childNodes.length ? actions : null;
+}
+
+function updateMap(items = []) {
+  if (!items || !items.length) {
+    clearMap();
+    return;
+  }
+
+  const map = ensureMap();
+  if (!map || !mapMarkersLayer) return;
+
+  mapMarkersLayer.clearLayers();
+
+  const bounds = [];
+  items.forEach(rest => {
+    const lat = typeof rest.latitude === 'number' ? rest.latitude : Number(rest.latitude);
+    const lng = typeof rest.longitude === 'number' ? rest.longitude : Number(rest.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const marker = window.L.marker([lat, lng]);
+    const popupLines = [`<strong>${rest.name || 'Restaurant'}</strong>`];
+    const rating = formatRating(rest.rating);
+    if (rating) {
+      const reviews =
+        typeof rest.reviewCount === 'number' && rest.reviewCount > 0
+          ? ` (${rest.reviewCount})`
+          : '';
+      popupLines.push(`Rating: ${rating}${reviews}`);
+    }
+    if (rest.address) {
+      popupLines.push(rest.address);
+    }
+    marker.bindPopup(popupLines.join('<br>'));
+    marker.addTo(mapMarkersLayer);
+    bounds.push([lat, lng]);
+  });
+
+  const mapElement = document.getElementById('restaurantsMap');
+  if (mapElement) {
+    if (bounds.length) {
+      mapElement.classList.remove('restaurants-map--empty');
+    } else {
+      mapElement.classList.add('restaurants-map--empty');
+    }
+  }
+
+  if (!bounds.length) {
+    clearMap();
+    return;
+  }
+
+  if (bounds.length === 1) {
+    map.setView(bounds[0], 14);
+  } else {
+    const layerBounds = window.L.latLngBounds(bounds);
+    map.fitBounds(layerBounds, { padding: [24, 24], maxZoom: 15 });
+  }
 }
 
 function sortByRating(items) {
@@ -39,89 +308,67 @@ function renderResults(container, items) {
     renderMessage(container, 'No restaurants found.');
     return;
   }
-  const ul = document.createElement('ul');
+
+  ensureMap();
+
+  const grid = document.createElement('div');
+  grid.className = 'restaurants-grid';
+
   items.forEach(rest => {
-    const li = document.createElement('li');
-    li.className = 'restaurant-card';
+    const card = document.createElement('article');
+    card.className = 'restaurant-card';
+
+    const header = document.createElement('div');
+    header.className = 'restaurant-card__header';
 
     const title = document.createElement('h3');
     title.textContent = rest.name || 'Unnamed Restaurant';
-    li.appendChild(title);
+    header.appendChild(title);
 
-    const meta = document.createElement('ul');
-    meta.className = 'restaurant-meta';
+    const ratingBadge = createRatingBadge(rest.rating, rest.reviewCount);
+    if (ratingBadge) header.appendChild(ratingBadge);
 
-    if (rest.address) {
-      const m = document.createElement('li');
-      m.textContent = rest.address;
-      meta.appendChild(m);
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'restaurant-card__body';
+
+    const address = createAddress(rest);
+    if (address) body.appendChild(address);
+
+    const meta = createMetaList(rest);
+    if (meta) body.appendChild(meta);
+
+    const chips = createCuisineChips(rest);
+    if (chips) body.appendChild(chips);
+
+    card.appendChild(body);
+
+    const footer = document.createElement('div');
+    footer.className = 'restaurant-card__footer';
+
+    const distanceText = formatDistance(rest.distance);
+    if (distanceText) {
+      const distance = document.createElement('span');
+      distance.className = 'restaurant-distance';
+      distance.textContent = distanceText;
+      footer.appendChild(distance);
     }
 
-    const details = [];
-    if (rest.city) details.push(rest.city);
-    if (rest.state) details.push(rest.state);
-    if (rest.zip) details.push(rest.zip);
-    if (details.length) {
-      const m = document.createElement('li');
-      m.textContent = details.join(', ');
-      meta.appendChild(m);
+    const actions = createActions(rest);
+    if (actions) footer.appendChild(actions);
+
+    if (footer.childNodes.length) {
+      card.appendChild(footer);
     }
 
-    const categoryText = Array.isArray(rest.categories) && rest.categories.length
-      ? rest.categories.join(', ')
-      : rest.cuisine;
-    if (categoryText) {
-      const m = document.createElement('li');
-      m.textContent = `Cuisine: ${categoryText}`;
-      meta.appendChild(m);
-    }
-
-    if (rest.phone) {
-      const m = document.createElement('li');
-      m.textContent = `Phone: ${rest.phone}`;
-      meta.appendChild(m);
-    }
-
-    if (rest.price) {
-      const m = document.createElement('li');
-      m.textContent = `Price: ${rest.price}`;
-      meta.appendChild(m);
-    }
-
-    if (rest.rating) {
-      const m = document.createElement('li');
-      const reviews = rest.reviewCount ? ` (${rest.reviewCount} reviews)` : '';
-      m.textContent = `Rating: ${rest.rating}${reviews}`;
-      meta.appendChild(m);
-    }
-
-    if (typeof rest.distance === 'number') {
-      const distanceText = formatDistance(rest.distance);
-      if (distanceText) {
-        const m = document.createElement('li');
-        m.textContent = `Distance: ${distanceText}`;
-        meta.appendChild(m);
-      }
-    }
-
-    if (rest.url || rest.website) {
-      const m = document.createElement('li');
-      const link = document.createElement('a');
-      const href = rest.url || rest.website;
-      link.href = href.startsWith('http') ? href : `https://${href}`;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Website';
-      m.appendChild(link);
-      meta.appendChild(m);
-    }
-
-    if (meta.childNodes.length) li.appendChild(meta);
-
-    ul.appendChild(li);
+    grid.appendChild(card);
   });
+
   container.innerHTML = '';
-  container.appendChild(ul);
+  container.appendChild(grid);
+
+  updateMap(items);
 }
 
 async function reverseGeocodeCity(latitude, longitude) {

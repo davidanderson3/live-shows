@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 function setupDom() {
   return new JSDOM(`
     <div id="restaurantsPanel">
+      <div id="restaurantsMap"></div>
       <div id="restaurantsResults"></div>
     </div>
   `);
