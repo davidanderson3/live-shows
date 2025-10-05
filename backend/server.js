@@ -185,7 +185,6 @@ app.get('/api/restaurants', async (req, res) => {
     params.delete('location');
     params.set('latitude', String(latitude));
     params.set('longitude', String(longitude));
-    params.set('location', `${latitude},${longitude}`);
   }
   if (cuisine) {
     params.set('term', String(cuisine));
