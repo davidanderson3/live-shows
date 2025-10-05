@@ -208,9 +208,18 @@ async function callTmdbProxy(endpoint, params = {}) {
     } catch (_) {
       error.body = null;
     }
-    if (response.status >= 400) {
+
+    const shouldDisableProxy = (() => {
+      if (response.status >= 500) return true;
+      if (response.status === 401 || response.status === 403) return true;
+      const bodyText = typeof error.body === 'string' ? error.body : '';
+      return bodyText.includes('tmdb_key_not_configured');
+    })();
+
+    if (shouldDisableProxy) {
       disableTmdbProxy();
     }
+
     throw error;
   }
   return response.json();
