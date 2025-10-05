@@ -4,6 +4,7 @@ const MOVIE_PREFS_KEY = 'moviePreferences';
 const API_KEY_STORAGE = 'moviesApiKey';
 const DEFAULT_INTEREST = 3;
 const MAX_DISCOVER_PAGES = 3;
+const MAX_CREDIT_REQUESTS = 20;
 const PREF_COLLECTION = 'moviePreferences';
 const MIN_VOTE_AVERAGE = 7;
 const MIN_VOTE_COUNT = 50;
@@ -176,7 +177,9 @@ function summarizeMovie(movie) {
     overview: movie.overview || '',
     vote_average: movie.vote_average ?? null,
     vote_count: movie.vote_count ?? null,
-    genre_ids: Array.isArray(movie.genre_ids) ? movie.genre_ids : []
+    genre_ids: Array.isArray(movie.genre_ids) ? movie.genre_ids : [],
+    topCast: getNameList(movie.topCast).slice(0, 5),
+    directors: getNameList(movie.directors).slice(0, 3)
   };
 }
 
@@ -196,6 +199,72 @@ function appendMeta(list, label, value) {
   strong.textContent = `${label}:`;
   item.append(strong, ` ${value}`);
   list.appendChild(item);
+}
+
+function appendPeopleMeta(list, label, names) {
+  const values = getNameList(names);
+  if (!values.length) return;
+  appendMeta(list, label, values.join(', '));
+}
+
+function applyCreditsToMovie(movie, credits) {
+  if (!movie || !credits) return;
+  const cast = Array.isArray(credits.cast) ? credits.cast : [];
+  const crew = Array.isArray(credits.crew) ? credits.crew : [];
+
+  const topCast = cast
+    .filter(person => person && typeof person.name === 'string')
+    .slice(0, 5)
+    .map(person => person.name.trim())
+    .filter(Boolean);
+
+  const directors = crew
+    .filter(person => person && person.job === 'Director' && typeof person.name === 'string')
+    .map(person => person.name.trim())
+    .filter(Boolean);
+
+  if (topCast.length) {
+    movie.topCast = Array.from(new Set(topCast));
+  }
+  if (directors.length) {
+    movie.directors = Array.from(new Set(directors));
+  }
+}
+
+async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
+  if (!movieId) return null;
+  try {
+    if (usingProxy) {
+      return await callTmdbProxy('credits', { movie_id: movieId });
+    }
+
+    if (!apiKey) return null;
+    const url = new URL(`https://api.themoviedb.org/3/movie/${movieId}/credits`);
+    url.searchParams.set('api_key', apiKey);
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to fetch credits for movie', movieId, err);
+    return null;
+  }
+}
+
+async function enrichMoviesWithCredits(movies, options) {
+  if (!Array.isArray(movies) || !movies.length) return;
+  const limit = Math.min(MAX_CREDIT_REQUESTS, movies.length);
+  const targets = movies.slice(0, limit).filter(movie => movie && movie.id != null);
+  if (!targets.length) return;
+
+  const creditsList = await Promise.all(
+    targets.map(movie => fetchCreditsForMovie(movie.id, options))
+  );
+
+  creditsList.forEach((credits, index) => {
+    const movie = targets[index];
+    if (!movie) return;
+    applyCreditsToMovie(movie, credits);
+  });
 }
 
 async function setStatus(movie, status, options = {}) {
@@ -293,6 +362,8 @@ function renderFeed() {
     appendMeta(metaList, 'Average Score', movie.vote_average ?? 'N/A');
     appendMeta(metaList, 'Votes', movie.vote_count ?? 'N/A');
     appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
+    appendPeopleMeta(metaList, 'Director', movie.directors);
+    appendPeopleMeta(metaList, 'Cast', movie.topCast);
 
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
@@ -379,6 +450,14 @@ function renderInterestedList() {
       info.appendChild(overview);
     }
 
+    const metaList = document.createElement('ul');
+    metaList.className = 'movie-meta';
+    appendPeopleMeta(metaList, 'Director', movie.directors);
+    appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    if (metaList.childNodes.length) {
+      info.appendChild(metaList);
+    }
+
     const controls = document.createElement('div');
     controls.className = 'button-row';
     controls.append(makeActionButton('Remove', () => clearStatus(movie.id)));
@@ -430,6 +509,14 @@ function renderWatchedList() {
       const overview = document.createElement('p');
       overview.textContent = movie.overview;
       info.appendChild(overview);
+    }
+
+    const metaList = document.createElement('ul');
+    metaList.className = 'movie-meta';
+    appendPeopleMeta(metaList, 'Director', movie.directors);
+    appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    if (metaList.childNodes.length) {
+      info.appendChild(metaList);
     }
 
     const controls = document.createElement('div');
@@ -633,6 +720,7 @@ async function loadMovies() {
     const movies = applyPriorityOrdering(
       usingProxy ? await fetchMoviesFromProxy() : await fetchMoviesDirect(apiKey)
     );
+    await enrichMoviesWithCredits(movies, { usingProxy, apiKey });
     const genres = usingProxy ? await fetchGenreMapFromProxy() : await fetchGenreMapDirect(apiKey);
     currentMovies = movies;
     genreMap = genres;
