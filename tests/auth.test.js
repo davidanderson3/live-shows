@@ -19,6 +19,7 @@ describe('auth persistence and UI updates', () => {
     const dom = new JSDOM(`<button id="loginBtn"></button><button id="logoutBtn"></button><span id="userEmail"></span>`);
     global.window = dom.window;
     global.document = dom.window.document;
+    global.window.__FIREBASE_CONFIG__ = {};
 
     const callbacks = [];
     const setPersistence = vi.fn().mockRejectedValue(new Error('fail'));
