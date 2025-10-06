@@ -17,6 +17,7 @@ const DEFAULT_TMDB_PROXY_ENDPOINT =
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/tmdbProxy';
 
 let proxyDisabled = false;
+const unsupportedProxyEndpoints = new Set();
 
 const domRefs = {
   list: null,
@@ -178,6 +179,12 @@ function disableTmdbProxy() {
   }
 }
 
+function isProxyEndpointSupported(endpoint) {
+  if (!endpoint) return false;
+  if (proxyDisabled) return false;
+  return !unsupportedProxyEndpoints.has(endpoint);
+}
+
 async function callTmdbProxy(endpoint, params = {}) {
   const proxyEndpoint = getTmdbProxyEndpoint();
   if (!proxyEndpoint) {
@@ -204,6 +211,7 @@ async function callTmdbProxy(endpoint, params = {}) {
 
   if (!response.ok) {
     const error = new Error('TMDB proxy request failed');
+    error.endpoint = endpoint;
     error.status = response.status;
     try {
       error.body = await response.text();
@@ -221,7 +229,16 @@ async function callTmdbProxy(endpoint, params = {}) {
         try {
           const parsed = JSON.parse(bodyText);
           const code = parsed?.error;
-          return code === 'unsupported_endpoint' || code === 'invalid_endpoint_params';
+          if (code) {
+            error.code = code;
+          }
+          if (code === 'unsupported_endpoint') {
+            if (endpoint) {
+              unsupportedProxyEndpoints.add(endpoint);
+            }
+            return false;
+          }
+          return code === 'invalid_endpoint_params';
         } catch (_) {
           return false;
         }
@@ -330,7 +347,7 @@ async function fetchCreditsDirect(movieId, apiKey) {
 
 async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
   if (!movieId) return null;
-  if (usingProxy) {
+  if (usingProxy && isProxyEndpointSupported('credits')) {
     try {
       const credits = await callTmdbProxy('credits', { movie_id: movieId });
       if (credits) {
@@ -338,7 +355,9 @@ async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
       }
     } catch (err) {
       console.warn('TMDB proxy credits request failed, attempting direct fallback', err);
-      disableTmdbProxy();
+      if (!err || err.code !== 'unsupported_endpoint') {
+        disableTmdbProxy();
+      }
       const direct = await fetchCreditsDirect(movieId, apiKey);
       if (direct) return direct;
       return null;
