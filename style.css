@@ -802,6 +802,71 @@ button:hover {
   font-weight: 600;
 }
 
+.shows-suggestions {
+  list-style: none;
+  padding: 0;
+  margin: 1.25rem 0 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.shows-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d5e7df;
+  border-radius: 14px;
+  background: #f7fbf9;
+}
+
+.shows-suggestion__image {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(31, 74, 64, 0.12);
+}
+
+.shows-suggestion__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.shows-suggestion__name {
+  margin: 0;
+  font-weight: 700;
+  color: #1f4a40;
+}
+
+.shows-suggestion__artists {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #3d5f58;
+}
+
+.shows-suggestion__link {
+  margin-top: 0.3rem;
+  align-self: flex-start;
+  color: #2f7f70;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.shows-suggestion__link:hover {
+  text-decoration: underline;
+}
+
+.shows-suggestions__title {
+  margin: 1.5rem 0 0.25rem;
+  font-size: 1rem;
+  color: #1f4a40;
+  font-weight: 700;
+  text-align: left;
+}
+
 #spotifyStatus,
 .shows-spotify-status {
   font-size: 0.85rem;

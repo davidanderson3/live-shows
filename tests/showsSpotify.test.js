@@ -329,4 +329,63 @@ describe('initShowsPanel', () => {
 
     expect(fetch.mock.calls[2][0]).toContain('apiKey=manualKey');
   });
+
+  it('shows Spotify suggestions when no live shows are available', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [{ name: 'Top Artist', id: 'artist1' }]
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tracks: [
+            {
+              id: 'track1',
+              name: 'Song One',
+              artists: [{ name: 'Artist A' }],
+              external_urls: { spotify: 'https://spotify.com/track1' },
+              album: { images: [{ url: 'https://img/1.jpg', width: 300 }] }
+            },
+            {
+              id: 'track2',
+              name: 'Song Two',
+              artists: [{ name: 'Artist B' }],
+              external_urls: { spotify: 'https://spotify.com/track2' },
+              album: { images: [{ url: 'https://img/2.jpg', width: 300 }] }
+            },
+            {
+              id: 'track3',
+              name: 'Song Three',
+              artists: [{ name: 'Artist C' }],
+              external_urls: { spotify: 'https://spotify.com/track3' },
+              album: { images: [{ url: 'https://img/3.jpg', width: 300 }] }
+            },
+            {
+              id: 'track4',
+              name: 'Song Four',
+              artists: [{ name: 'Artist D' }],
+              external_urls: { spotify: 'https://spotify.com/track4' },
+              album: { images: [{ url: 'https://img/4.jpg', width: 300 }] }
+            }
+          ]
+        })
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+
+    await flush();
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(4);
+    const suggestions = document.querySelectorAll('.shows-suggestion');
+    expect(suggestions.length).toBe(4);
+    expect(document.querySelector('.shows-suggestions__title')?.textContent).toContain('Spotify suggestions');
+    expect(document.querySelector('.shows-empty')?.textContent).toContain('No nearby shows');
+  });
 });

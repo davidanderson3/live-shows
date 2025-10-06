@@ -36,7 +36,53 @@ let userLocationRequested = false;
 
 const SHOW_PREFS_STORAGE_KEY = 'showsPreferences';
 let currentShows = [];
+let currentSuggestions = [];
 let showsEmptyReason = null;
+
+async function fetchSpotifySuggestions(token, artists) {
+  if (!token || !Array.isArray(artists) || artists.length === 0) {
+    return [];
+  }
+
+  const seedIds = artists
+    .map(artist => artist?.id)
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (!seedIds.length) {
+    return [];
+  }
+
+  const url = new URL('https://api.spotify.com/v1/recommendations');
+  url.searchParams.set('limit', '4');
+  url.searchParams.set('seed_artists', seedIds.join(','));
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Spotify suggestions HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  const tracks = Array.isArray(data?.tracks) ? data.tracks.slice(0, 4) : [];
+
+  return tracks.map(track => ({
+    id: track?.id || track?.uri || track?.name || '',
+    name: track?.name || 'Spotify recommendation',
+    artists: Array.isArray(track?.artists)
+      ? track.artists
+          .map(a => a?.name)
+          .filter(Boolean)
+          .join(', ')
+      : '',
+    url: track?.external_urls?.spotify || '',
+    image: Array.isArray(track?.album?.images)
+      ? (track.album.images.find(img => img?.width >= 200) || track.album.images[0])?.url || ''
+      : ''
+  }));
+}
 
 const TICKETMASTER_CACHE_STORAGE_KEY = 'ticketmasterCacheV1';
 const TICKETMASTER_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
@@ -265,6 +311,60 @@ function renderShowsList() {
       emptyEl.className = 'shows-empty';
       emptyEl.textContent = emptyMessage;
       listEl.appendChild(emptyEl);
+
+      if (currentSuggestions.length) {
+        const suggestionHeader = document.createElement('h4');
+        suggestionHeader.className = 'shows-suggestions__title';
+        suggestionHeader.textContent = 'Spotify suggestions to explore:';
+        listEl.appendChild(suggestionHeader);
+
+        const suggestionList = document.createElement('ul');
+        suggestionList.className = 'shows-suggestions';
+
+        for (const suggestion of currentSuggestions) {
+          const item = document.createElement('li');
+          item.className = 'shows-suggestion';
+
+          if (suggestion.image) {
+            const thumb = document.createElement('img');
+            thumb.className = 'shows-suggestion__image';
+            thumb.src = suggestion.image;
+            thumb.alt = `${suggestion.name} cover art`;
+            thumb.loading = 'lazy';
+            item.appendChild(thumb);
+          }
+
+          const content = document.createElement('div');
+          content.className = 'shows-suggestion__content';
+
+          const title = document.createElement('p');
+          title.className = 'shows-suggestion__name';
+          title.textContent = suggestion.name;
+          content.appendChild(title);
+
+          if (suggestion.artists) {
+            const artists = document.createElement('p');
+            artists.className = 'shows-suggestion__artists';
+            artists.textContent = suggestion.artists;
+            content.appendChild(artists);
+          }
+
+          if (suggestion.url) {
+            const link = document.createElement('a');
+            link.href = suggestion.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'shows-suggestion__link';
+            link.textContent = 'Listen on Spotify';
+            content.appendChild(link);
+          }
+
+          item.appendChild(content);
+          suggestionList.appendChild(item);
+        }
+
+        listEl.appendChild(suggestionList);
+      }
     }
     if (interestedEl) {
       const emptyInterested = document.createElement('p');
@@ -648,6 +748,8 @@ export async function initShowsPanel() {
     const requiresManualApiKey = !serverHasTicketmasterKey;
 
     if (!token) {
+      currentShows = [];
+      currentSuggestions = [];
       listEl.textContent = 'Please login to Spotify.';
       return;
     }
@@ -658,6 +760,8 @@ export async function initShowsPanel() {
     }
 
     if (requiresManualApiKey && !manualApiKey) {
+      currentShows = [];
+      currentSuggestions = [];
       listEl.textContent = 'Please enter your Ticketmaster API key.';
       return;
     }
@@ -684,12 +788,16 @@ export async function initShowsPanel() {
       const artistData = await artistRes.json();
       const artists = artistData.items || [];
       if (artists.length === 0) {
+        currentShows = [];
+        currentSuggestions = [];
         listEl.textContent = 'No artists found.';
         return;
       }
 
       const userLocation = await getUserLocation();
       if (!userLocation) {
+        currentShows = [];
+        currentSuggestions = [];
         listEl.innerHTML =
           '<p class="shows-empty">Allow location access to see shows within 300 miles.</p>';
         return;
@@ -775,15 +883,25 @@ export async function initShowsPanel() {
           });
         }
         currentShows = events;
+        currentSuggestions = [];
         showsEmptyReason = null;
         renderShowsList();
       } else {
         currentShows = [];
+        currentSuggestions = [];
         showsEmptyReason = 'noNearby';
+        try {
+          currentSuggestions = await fetchSpotifySuggestions(token, artists);
+        } catch (err) {
+          console.warn('Failed to load Spotify suggestions', err);
+          currentSuggestions = [];
+        }
         renderShowsList();
       }
     } catch (err) {
       console.error('Failed to load shows', err);
+      currentShows = [];
+      currentSuggestions = [];
       listEl.textContent = 'Failed to load shows.';
     }
   };
