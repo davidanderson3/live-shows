@@ -14,6 +14,8 @@ const { execFile } = require('child_process');
 const util = require('util');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const cors = require('cors');
+const { readCachedResponse, writeCachedResponse } = require('../shared/cache');
+const { normalizeRecipeQuery, recipeCacheKeyParts } = require('../shared/recipes');
 let nodemailer;
 try {
   nodemailer = require('nodemailer');
@@ -29,6 +31,11 @@ const TICKETMASTER_CONSUMER_KEY =
   process.env.TICKETMASTER_CONSUMER_KEY || process.env.TICKETMASTER_API_KEY || '';
 const TICKETMASTER_CONSUMER_SECRET = process.env.TICKETMASTER_CONSUMER_SECRET || '';
 const HAS_TICKETMASTER_KEY = Boolean(TICKETMASTER_CONSUMER_KEY);
+const YELP_CACHE_COLLECTION = 'yelpCache';
+const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const TICKETMASTER_CACHE_COLLECTION = 'ticketmasterCache';
+const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
+const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 
 // Enable CORS for all routes so the frontend can reach the API
 app.use(cors());
@@ -48,6 +55,42 @@ const mailer = (() => {
 })();
 
 app.use(express.json());
+
+function sendCachedResponse(res, cached) {
+  if (!cached || typeof cached.body !== 'string') return false;
+  res.status(typeof cached.status === 'number' ? cached.status : 200);
+  res.type(cached.contentType || 'application/json');
+  res.send(cached.body);
+  return true;
+}
+
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
+  const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
+  const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const parts = ['yelp'];
+  if (hasCoords) {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    parts.push('coords');
+    parts.push(`${lat.toFixed(4)},${lon.toFixed(4)}`);
+  } else {
+    parts.push('coords:none');
+  }
+  if (normalizedCity) {
+    parts.push(`city:${normalizedCity}`);
+  }
+  if (normalizedCuisine) {
+    parts.push(`cuisine:${normalizedCuisine}`);
+  }
+  return parts;
+}
+
+function ticketmasterCacheKeyParts(apiKey, keyword) {
+  const normalizedKey = String(apiKey || '').trim().toLowerCase();
+  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+  return ['ticketmaster', normalizedKey, normalizedKeyword];
+}
 
 const plaidClient = (() => {
   const clientID = process.env.PLAID_CLIENT_ID;
@@ -181,6 +224,12 @@ app.get('/api/restaurants', async (req, res) => {
     return res.status(400).json({ error: 'missing location' });
   }
 
+  const cacheKeyParts = yelpCacheKeyParts({ city, latitude, longitude, cuisine });
+  const cached = await readCachedResponse(YELP_CACHE_COLLECTION, cacheKeyParts, YELP_CACHE_TTL_MS);
+  if (sendCachedResponse(res, cached)) {
+    return;
+  }
+
   const params = new URLSearchParams({
     categories: 'restaurants',
     limit: '20',
@@ -237,7 +286,22 @@ app.get('/api/restaurants', async (req, res) => {
       distance: typeof biz.distance === 'number' ? biz.distance : null
     }));
 
-    res.json(simplified);
+    const payload = JSON.stringify(simplified);
+    await writeCachedResponse(YELP_CACHE_COLLECTION, cacheKeyParts, {
+      status: 200,
+      contentType: 'application/json',
+      body: payload,
+      metadata: {
+        city: typeof city === 'string' ? city : '',
+        hasCoords,
+        latitude: hasCoords ? latitude : null,
+        longitude: hasCoords ? longitude : null,
+        cuisine: typeof cuisine === 'string' ? cuisine : '',
+        total: simplified.length
+      }
+    });
+
+    res.type('application/json').send(payload);
   } catch (err) {
     console.error('Restaurant proxy failed', err);
     res.status(500).json({ error: 'failed' });
@@ -313,6 +377,18 @@ app.get('/api/ticketmaster', async (req, res) => {
     return res.status(cached.status).type('application/json').send(cached.text);
   }
 
+  const cacheKeyParts = ticketmasterCacheKeyParts(effectiveKey, keyword);
+  const sharedCached = await readCachedResponse(
+    TICKETMASTER_CACHE_COLLECTION,
+    cacheKeyParts,
+    TICKETMASTER_CACHE_TTL_MS
+  );
+  if (sharedCached) {
+    setTicketmasterCacheEntry(cacheKey, { status: sharedCached.status, text: sharedCached.body });
+    sendCachedResponse(res, sharedCached);
+    return;
+  }
+
   const url =
     `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${encodeURIComponent(
       effectiveKey
@@ -322,6 +398,15 @@ app.get('/api/ticketmaster', async (req, res) => {
     const text = await response.text();
     if (response.ok) {
       setTicketmasterCacheEntry(cacheKey, { status: response.status, text });
+      await writeCachedResponse(TICKETMASTER_CACHE_COLLECTION, cacheKeyParts, {
+        status: response.status,
+        contentType: 'application/json',
+        body: text,
+        metadata: {
+          keyword,
+          usingDefaultKey: !queryKey
+        }
+      });
     }
     res
       .status(response.status)
@@ -343,14 +428,35 @@ app.get('/api/spoonacular', async (req, res) => {
   if (!query) {
     return res.status(400).json({ error: 'missing query' });
   }
+  const cacheKeyParts = recipeCacheKeyParts(query);
+  const cached = await readCachedResponse(
+    SPOONACULAR_CACHE_COLLECTION,
+    cacheKeyParts,
+    SPOONACULAR_CACHE_TTL_MS
+  );
+  if (sendCachedResponse(res, cached)) {
+    return;
+  }
   const apiUrl =
     `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(
       query
     )}&number=50&offset=0&addRecipeInformation=true&apiKey=${apiKey}`;
   try {
     const apiRes = await fetch(apiUrl);
-    const data = await apiRes.json();
-    res.status(apiRes.status).json(data);
+    const text = await apiRes.text();
+    const contentType = apiRes.headers.get('content-type') || 'application/json';
+    if (apiRes.ok) {
+      await writeCachedResponse(SPOONACULAR_CACHE_COLLECTION, cacheKeyParts, {
+        status: apiRes.status,
+        contentType,
+        body: text,
+        metadata: {
+          query,
+          normalizedQuery: normalizeRecipeQuery(query)
+        }
+      });
+    }
+    res.status(apiRes.status).type(contentType).send(text);
   } catch (err) {
     console.error('Spoonacular fetch failed', err);
     res.status(500).json({ error: 'failed' });

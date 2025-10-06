@@ -1,97 +1,87 @@
 const functions = require('firebase-functions');
-const admin = require('firebase-admin');
+
+const { readCachedResponse, writeCachedResponse } = require('../shared/cache');
+const { normalizeRecipeQuery, recipeCacheKeyParts } = require('../shared/recipes');
 
 const DEFAULT_REGION = 'us-central1';
 const TMDB_BASE_URL = 'https://api.themoviedb.org';
 const SPOONACULAR_BASE_URL = 'https://api.spoonacular.com/recipes/complexSearch';
+const TMDB_CACHE_COLLECTION = 'tmdbCache';
+const TMDB_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const RECIPE_CACHE_COLLECTION = 'recipeCache';
 const RECIPE_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 
-let firestore = null;
-let firestoreInitFailed = false;
-
-function getFirestore() {
-  if (firestore || firestoreInitFailed) {
-    return firestore;
-  }
-  try {
-    if (!admin.apps.length) {
-      admin.initializeApp();
-    }
-    firestore = admin.firestore();
-  } catch (err) {
-    firestoreInitFailed = true;
-    firestore = null;
-    console.error('Failed to initialize Firestore', err);
-  }
-  return firestore;
-}
-
-function normalizeRecipeQuery(query) {
-  return String(query || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
-function recipeCacheId(query) {
-  const normalized = normalizeRecipeQuery(query);
-  if (!normalized) return 'default';
-  return Buffer.from(normalized, 'utf8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
 async function readRecipeCache(query) {
-  const db = getFirestore();
-  if (!db) return null;
-  try {
-    const doc = await db.collection(RECIPE_CACHE_COLLECTION).doc(recipeCacheId(query)).get();
-    if (!doc.exists) return null;
-    const data = doc.data() || {};
-    const fetchedAt = data.fetchedAt;
-    if (!fetchedAt || typeof fetchedAt.toMillis !== 'function') return null;
-    if (Date.now() - fetchedAt.toMillis() > RECIPE_CACHE_TTL_MS) return null;
-    if (typeof data.body !== 'string' || !data.body) return null;
-    return {
-      status: typeof data.status === 'number' ? data.status : 200,
-      contentType:
-        typeof data.contentType === 'string' && data.contentType
-          ? data.contentType
-          : 'application/json',
-      body: data.body
-    };
-  } catch (err) {
-    console.error('Failed to read recipe cache', err);
-    return null;
-  }
+  return readCachedResponse(
+    RECIPE_CACHE_COLLECTION,
+    recipeCacheKeyParts(query),
+    RECIPE_CACHE_TTL_MS
+  );
 }
 
 async function writeRecipeCache(query, status, contentType, body) {
-  const db = getFirestore();
-  if (!db) return;
-  try {
-    await db
-      .collection(RECIPE_CACHE_COLLECTION)
-      .doc(recipeCacheId(query))
-      .set({
-        query,
-        normalizedQuery: normalizeRecipeQuery(query),
-        status,
-        contentType,
-        body,
-        fetchedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-  } catch (err) {
-    console.error('Failed to write recipe cache', err);
+  await writeCachedResponse(RECIPE_CACHE_COLLECTION, recipeCacheKeyParts(query), {
+    status,
+    contentType,
+    body,
+    metadata: {
+      query,
+      normalizedQuery: normalizeRecipeQuery(query)
+    }
+  });
+}
+
+function normalizeTmdbParams(params) {
+  const normalized = [];
+  if (!params) return normalized;
+  for (const [key, value] of params.entries()) {
+    if (key === 'api_key') continue;
+    normalized.push([key, value]);
   }
+  normalized.sort(([keyA, valueA], [keyB, valueB]) => {
+    if (keyA === keyB) {
+      return valueA.localeCompare(valueB);
+    }
+    return keyA.localeCompare(keyB);
+  });
+  return normalized.map(([key, value]) => ({ key, value }));
+}
+
+function tmdbCacheKeyParts(path, params) {
+  const normalizedPath = String(path || '').trim();
+  const normalizedParams = normalizeTmdbParams(params);
+  const serializedParams = normalizedParams.map(entry => `${entry.key}=${entry.value}`).join('&');
+  return {
+    parts: ['tmdb', normalizedPath, serializedParams],
+    normalizedPath,
+    normalizedParams
+  };
+}
+
+async function readTmdbCache(path, params) {
+  const { parts } = tmdbCacheKeyParts(path, params);
+  return readCachedResponse(TMDB_CACHE_COLLECTION, parts, TMDB_CACHE_TTL_MS);
+}
+
+async function writeTmdbCache(path, params, status, contentType, body, metadata = {}) {
+  const { parts, normalizedPath, normalizedParams } = tmdbCacheKeyParts(path, params);
+  await writeCachedResponse(TMDB_CACHE_COLLECTION, parts, {
+    status,
+    contentType,
+    body,
+    metadata: {
+      path: normalizedPath,
+      params: normalizedParams,
+      ...metadata
+    }
+  });
 }
 
 const ALLOWED_ENDPOINTS = {
   discover: { path: '/3/discover/movie' },
+  discover_tv: { path: '/3/discover/tv' },
   genres: { path: '/3/genre/movie/list' },
+  tv_genres: { path: '/3/genre/tv/list' },
   credits: {
     path: query => {
       const rawId = query?.movie_id;
@@ -102,7 +92,60 @@ const ALLOWED_ENDPOINTS = {
       return `/3/movie/${encodeURIComponent(trimmed)}/credits`;
     },
     omitParams: ['movie_id']
-  }
+  },
+  tv_credits: {
+    path: query => {
+      const rawId = query?.tv_id ?? query?.id;
+      const value = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!value && value !== 0) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed) return null;
+      return `/3/tv/${encodeURIComponent(trimmed)}/credits`;
+    },
+    omitParams: ['tv_id', 'id']
+  },
+  movie_details: {
+    path: query => {
+      const rawId = query?.movie_id ?? query?.id;
+      const value = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!value && value !== 0) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed) return null;
+      return `/3/movie/${encodeURIComponent(trimmed)}`;
+    },
+    omitParams: ['movie_id', 'id']
+  },
+  tv_details: {
+    path: query => {
+      const rawId = query?.tv_id ?? query?.id;
+      const value = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!value && value !== 0) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed) return null;
+      return `/3/tv/${encodeURIComponent(trimmed)}`;
+    },
+    omitParams: ['tv_id', 'id']
+  },
+  person_details: {
+    path: query => {
+      const rawId = query?.person_id ?? query?.id;
+      const value = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!value && value !== 0) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed) return null;
+      return `/3/person/${encodeURIComponent(trimmed)}`;
+    },
+    omitParams: ['person_id', 'id']
+  },
+  search_multi: { path: '/3/search/multi' },
+  search_movie: { path: '/3/search/movie' },
+  search_tv: { path: '/3/search/tv' },
+  trending_all: { path: '/3/trending/all/day' },
+  trending_movies: { path: '/3/trending/movie/day' },
+  trending_tv: { path: '/3/trending/tv/day' },
+  popular_movies: { path: '/3/movie/popular' },
+  popular_tv: { path: '/3/tv/popular' },
+  upcoming_movies: { path: '/3/movie/upcoming' }
 };
 
 function getTmdbApiKey() {
@@ -196,6 +239,14 @@ exports.tmdbProxy = functions
 
     const targetUrl = `${TMDB_BASE_URL}${targetPath}?${params.toString()}`;
 
+    const cached = await readTmdbCache(targetPath, params);
+    if (cached) {
+      res.status(cached.status);
+      res.type(cached.contentType);
+      res.send(cached.body);
+      return;
+    }
+
     try {
       const tmdbResponse = await fetch(targetUrl, {
         headers: {
@@ -204,8 +255,14 @@ exports.tmdbProxy = functions
       });
 
       const payload = await tmdbResponse.text();
+      const contentType = tmdbResponse.headers.get('content-type') || 'application/json';
+      if (tmdbResponse.ok) {
+        await writeTmdbCache(targetPath, params, tmdbResponse.status, contentType, payload, {
+          endpoint: endpointKey
+        });
+      }
       res.status(tmdbResponse.status);
-      res.type(tmdbResponse.headers.get('content-type') || 'application/json');
+      res.type(contentType);
       res.send(payload);
     } catch (err) {
       console.error('TMDB proxy failed', err);
