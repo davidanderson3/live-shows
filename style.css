@@ -2464,6 +2464,22 @@ h2 {
   margin: 0 0 0.5rem 0;
 }
 
+.movie-personal-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+}
+
+.movie-personal-rating input {
+  width: 4rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-weight: 500;
+}
+
 .movie-meta {
   list-style: none;
   padding: 0;
