@@ -39,7 +39,7 @@ let activeApiKey = '';
 let prefsLoadedFor = null;
 let loadingPrefsPromise = null;
 let activeUserId = null;
-let activeInterestedGenre = null;
+const activeInterestedGenres = new Set();
 const handlers = {
   handleKeydown: null,
   handleChange: null
@@ -306,10 +306,31 @@ function appendGenresMeta(list, movie) {
   }
 }
 
-function updateInterestedGenreFilter(next) {
-  if (activeInterestedGenre === next) return;
-  activeInterestedGenre = next;
+function hasActiveInterestedGenres() {
+  return activeInterestedGenres.size > 0;
+}
+
+function toggleInterestedGenre(value) {
+  if (!value) {
+    if (!hasActiveInterestedGenres()) return;
+    activeInterestedGenres.clear();
+    renderInterestedList();
+    return;
+  }
+
+  if (activeInterestedGenres.has(value)) {
+    activeInterestedGenres.delete(value);
+  } else {
+    activeInterestedGenres.add(value);
+  }
   renderInterestedList();
+}
+
+function removeInterestedGenre(value) {
+  if (!value) return;
+  if (activeInterestedGenres.delete(value)) {
+    renderInterestedList();
+  }
 }
 
 function renderInterestedFilters(genres) {
@@ -319,7 +340,7 @@ function renderInterestedFilters(genres) {
   if (!genres.length) {
     container.innerHTML = '';
     container.style.display = 'none';
-    activeInterestedGenre = null;
+    activeInterestedGenres.clear();
     return;
   }
 
@@ -328,26 +349,64 @@ function renderInterestedFilters(genres) {
 
   const sorted = [...new Set(genres)].sort((a, b) => a.localeCompare(b));
 
+  const buttonsWrap = document.createElement('div');
+  buttonsWrap.className = 'genre-filter-buttons';
+
   const createButton = (label, value) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'genre-filter-btn';
-    if (value === activeInterestedGenre || (!value && activeInterestedGenre == null)) {
+    const isActive = value ? activeInterestedGenres.has(value) : !hasActiveInterestedGenres();
+    if (isActive) {
       btn.classList.add('active');
     }
     btn.textContent = label;
     btn.dataset.genre = value ?? '';
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      const next = value && activeInterestedGenre === value ? null : value;
-      updateInterestedGenreFilter(next ?? null);
+      toggleInterestedGenre(value ?? null);
     });
     return btn;
   };
 
-  container.appendChild(createButton('All', null));
+  buttonsWrap.appendChild(createButton('All', null));
   sorted.forEach(name => {
-    container.appendChild(createButton(name, name));
+    buttonsWrap.appendChild(createButton(name, name));
   });
+
+  const activeWrap = document.createElement('div');
+  activeWrap.className = 'genre-filter-active';
+
+  if (hasActiveInterestedGenres()) {
+    const label = document.createElement('span');
+    label.className = 'genre-filter-active-label';
+    label.textContent = 'Filtering by:';
+    activeWrap.appendChild(label);
+
+    Array.from(activeInterestedGenres)
+      .sort((a, b) => a.localeCompare(b))
+      .forEach(name => {
+        const chip = document.createElement('span');
+        chip.className = 'genre-filter-chip';
+
+        const text = document.createElement('span');
+        text.className = 'genre-filter-chip-text';
+        text.textContent = name;
+        chip.appendChild(text);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'genre-filter-chip-remove';
+        removeBtn.setAttribute('aria-label', `Remove ${name} filter`);
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => removeInterestedGenre(name));
+        chip.appendChild(removeBtn);
+
+        activeWrap.appendChild(chip);
+      });
+  }
+
+  container.append(buttonsWrap, activeWrap);
 }
 
 function appendPeopleMeta(list, label, names) {
@@ -585,8 +644,16 @@ function renderInterestedList() {
     }
   });
 
-  if (activeInterestedGenre && !genres.includes(activeInterestedGenre)) {
-    activeInterestedGenre = null;
+  let removed = false;
+  Array.from(activeInterestedGenres).forEach(name => {
+    if (!genres.includes(name)) {
+      activeInterestedGenres.delete(name);
+      removed = true;
+    }
+  });
+
+  if (removed && !genres.length) {
+    activeInterestedGenres.clear();
   }
 
   renderInterestedFilters(genres);
@@ -596,8 +663,12 @@ function renderInterestedList() {
     return;
   }
 
-  const entries = activeInterestedGenre
-    ? allEntries.filter(pref => getGenreNames(pref.movie).includes(activeInterestedGenre))
+  const selectedGenres = Array.from(activeInterestedGenres);
+  const entries = selectedGenres.length
+    ? allEntries.filter(pref => {
+        const names = getGenreNames(pref.movie);
+        return names.some(name => activeInterestedGenres.has(name));
+      })
     : allEntries;
 
   if (!entries.length) {

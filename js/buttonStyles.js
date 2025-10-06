@@ -33,6 +33,8 @@ function styleButton(btn) {
   // 1️⃣ Skip icon-only buttons or tag-filter buttons
   if (isIconButton(btn)) return;
   if (btn.classList.contains('tag-filter-button')) return;
+  if (btn.classList.contains('genre-filter-btn')) return;
+  if (btn.classList.contains('genre-filter-chip-remove')) return;
 
   // 2️⃣ Style everything else
   btn.style.backgroundColor = randomDarkColor();

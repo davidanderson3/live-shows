@@ -360,9 +360,9 @@ describe('initMoviesPanel', () => {
 
     await initMoviesPanel();
 
-    const filterButtons = Array.from(document.querySelectorAll('#savedMoviesFilters button')).map(btn =>
-      btn.textContent
-    );
+    const filterButtons = Array.from(
+      document.querySelectorAll('#savedMoviesFilters .genre-filter-buttons button')
+    ).map(btn => btn.textContent);
     expect(filterButtons).toEqual(['All', 'Comedy', 'Drama']);
 
     const listTitles = () =>
@@ -370,7 +370,9 @@ describe('initMoviesPanel', () => {
 
     expect(listTitles()).toHaveLength(2);
 
-    const comedyButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+    const comedyButton = Array.from(
+      document.querySelectorAll('#savedMoviesFilters .genre-filter-buttons button')
+    ).find(
       btn => btn.dataset.genre === 'Comedy'
     );
     comedyButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
@@ -379,7 +381,20 @@ describe('initMoviesPanel', () => {
     expect(comedyTitles).toHaveLength(1);
     expect(comedyTitles[0]).toContain('Comedy Night');
 
-    const allButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+    const activeGenres = () =>
+      Array.from(document.querySelectorAll('.genre-filter-chip-text')).map(el => el.textContent);
+
+    expect(activeGenres()).toEqual(['Comedy']);
+
+    const removeChipBtn = document.querySelector('.genre-filter-chip-remove');
+    removeChipBtn?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    expect(activeGenres()).toHaveLength(0);
+    expect(listTitles()).toHaveLength(2);
+
+    const allButton = Array.from(
+      document.querySelectorAll('#savedMoviesFilters .genre-filter-buttons button')
+    ).find(
       btn => btn.dataset.genre === ''
     );
     allButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
