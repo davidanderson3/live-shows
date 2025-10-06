@@ -29,7 +29,8 @@ const domRefs = {
   tabs: null,
   streamSection: null,
   interestedSection: null,
-  watchedSection: null
+  watchedSection: null,
+  watchedSort: null
 };
 
 let currentMovies = [];
@@ -39,6 +40,7 @@ let activeApiKey = '';
 let prefsLoadedFor = null;
 let loadingPrefsPromise = null;
 let activeUserId = null;
+let watchedSortMode = 'recent';
 let activeInterestedGenre = null;
 const handlers = {
   handleKeydown: null,
@@ -354,6 +356,33 @@ function appendPeopleMeta(list, label, names) {
   const values = getNameList(names);
   if (!values.length) return;
   appendMeta(list, label, values.join(', '));
+}
+
+function getVoteAverageValue(movie) {
+  if (!movie) return null;
+  const value = Number(movie.vote_average);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getVoteCountValue(movie) {
+  if (!movie) return null;
+  const value = Number(movie.vote_count);
+  return Number.isFinite(value) ? value : null;
+}
+
+function createRatingElement(movie) {
+  const rating = getVoteAverageValue(movie);
+  const votes = getVoteCountValue(movie);
+  if (rating == null && votes == null) return null;
+  const ratingEl = document.createElement('p');
+  ratingEl.className = 'movie-rating';
+  if (rating == null) {
+    ratingEl.textContent = 'Rating not available';
+  } else {
+    const votesText = votes == null ? '' : ` (${votes} votes)`;
+    ratingEl.textContent = `Rating: ${rating.toFixed(1)} / 10${votesText}`;
+  }
+  return ratingEl;
 }
 
 function applyCreditsToMovie(movie, credits) {
@@ -685,17 +714,63 @@ function renderWatchedList() {
   const listEl = domRefs.watchedList;
   if (!listEl) return;
 
-  const entries = Object.values(currentPrefs)
-    .filter(pref => pref.status === 'watched' && pref.movie)
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const entries = Object.values(currentPrefs).filter(
+    pref => pref.status === 'watched' && pref.movie
+  );
 
-  if (!entries.length) {
+  const sorted = entries.slice();
+
+  const byUpdatedAt = (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  const byRatingDesc = (a, b) => {
+    const aRating = getVoteAverageValue(a.movie);
+    const bRating = getVoteAverageValue(b.movie);
+    if (aRating == null && bRating == null) return byUpdatedAt(a, b);
+    if (aRating == null) return 1;
+    if (bRating == null) return -1;
+    if (bRating !== aRating) return bRating - aRating;
+    const aVotes = getVoteCountValue(a.movie);
+    const bVotes = getVoteCountValue(b.movie);
+    if (aVotes == null && bVotes == null) return byUpdatedAt(a, b);
+    if (aVotes == null) return 1;
+    if (bVotes == null) return -1;
+    if (bVotes !== aVotes) return bVotes - aVotes;
+    return byUpdatedAt(a, b);
+  };
+  const byRatingAsc = (a, b) => {
+    const aRating = getVoteAverageValue(a.movie);
+    const bRating = getVoteAverageValue(b.movie);
+    if (aRating == null && bRating == null) return byUpdatedAt(a, b);
+    if (aRating == null) return 1;
+    if (bRating == null) return -1;
+    if (aRating !== bRating) return aRating - bRating;
+    const aVotes = getVoteCountValue(a.movie);
+    const bVotes = getVoteCountValue(b.movie);
+    if (aVotes == null && bVotes == null) return byUpdatedAt(a, b);
+    if (aVotes == null) return 1;
+    if (bVotes == null) return -1;
+    if (aVotes !== bVotes) return aVotes - bVotes;
+    return byUpdatedAt(a, b);
+  };
+
+  if (watchedSortMode === 'ratingDesc') {
+    sorted.sort(byRatingDesc);
+  } else if (watchedSortMode === 'ratingAsc') {
+    sorted.sort(byRatingAsc);
+  } else {
+    sorted.sort(byUpdatedAt);
+  }
+
+  if (domRefs.watchedSort) {
+    domRefs.watchedSort.value = watchedSortMode;
+  }
+
+  if (!sorted.length) {
     listEl.innerHTML = '<em>No watched movies yet.</em>';
     return;
   }
 
   const ul = document.createElement('ul');
-  entries.forEach(pref => {
+  sorted.forEach(pref => {
     const movie = pref.movie;
     const li = document.createElement('li');
     li.className = 'movie-card';
@@ -715,6 +790,11 @@ function renderWatchedList() {
     titleEl.textContent = `${movie.title || 'Untitled'} (${year})`;
     info.appendChild(titleEl);
 
+    const ratingEl = createRatingElement(movie);
+    if (ratingEl) {
+      info.appendChild(ratingEl);
+    }
+
     if (movie.overview) {
       const overview = document.createElement('p');
       overview.textContent = movie.overview;
@@ -723,6 +803,9 @@ function renderWatchedList() {
 
     const metaList = document.createElement('ul');
     metaList.className = 'movie-meta';
+    appendMeta(metaList, 'Average Score', movie.vote_average ?? 'N/A');
+    appendMeta(metaList, 'Votes', movie.vote_count ?? 'N/A');
+    appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
@@ -996,6 +1079,7 @@ export async function initMoviesPanel() {
   domRefs.streamSection = document.getElementById('movieStreamSection');
   domRefs.interestedSection = document.getElementById('savedMoviesSection');
   domRefs.watchedSection = document.getElementById('watchedMoviesSection');
+  domRefs.watchedSort = document.getElementById('watchedMoviesSort');
 
   currentPrefs = await loadPreferences();
 
@@ -1063,6 +1147,23 @@ export async function initMoviesPanel() {
       btn._movieTabHandler = handler;
       btn.addEventListener('click', handler);
     });
+  }
+
+  if (domRefs.watchedSort) {
+    if (domRefs.watchedSort._moviesSortHandler) {
+      domRefs.watchedSort.removeEventListener(
+        'change',
+        domRefs.watchedSort._moviesSortHandler
+      );
+    }
+    const handler = () => {
+      const value = domRefs.watchedSort?.value || 'recent';
+      watchedSortMode = value;
+      renderWatchedList();
+    };
+    domRefs.watchedSort._moviesSortHandler = handler;
+    domRefs.watchedSort.addEventListener('change', handler);
+    domRefs.watchedSort.value = watchedSortMode;
   }
 
   await loadMovies();

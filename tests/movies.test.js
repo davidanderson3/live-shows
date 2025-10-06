@@ -31,6 +31,14 @@ function buildDom() {
       <div id="savedMoviesList"></div>
     </div>
     <div id="watchedMoviesSection" style="display:none">
+      <div id="watchedMoviesControls" class="movie-controls">
+        <label for="watchedMoviesSort">Sort by:</label>
+        <select id="watchedMoviesSort">
+          <option value="recent">Recently Updated</option>
+          <option value="ratingDesc">Rating: High to Low</option>
+          <option value="ratingAsc">Rating: Low to High</option>
+        </select>
+      </div>
       <div id="watchedMoviesList"></div>
     </div>
     <div id="movieList"></div>
@@ -511,14 +519,96 @@ describe('initMoviesPanel', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.querySelector('#watchedMoviesList').textContent).toContain('Classic Film');
+    const ratingText = document.querySelector('#watchedMoviesList .movie-rating')?.textContent || '';
+    expect(ratingText).toContain('Rating: 9.1');
+    expect(ratingText).toContain('900 votes');
     const watchedMeta = document.querySelector('#watchedMoviesList .movie-meta')?.textContent || '';
     expect(watchedMeta).toContain('Genres: Adventure');
-    
+    expect(watchedMeta).toContain('Average Score: 9.1');
+    expect(watchedMeta).toContain('Release Date: 1999-07-16');
+
     const removeBtn = document.querySelector('#watchedMoviesList button');
     removeBtn?.click();
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.querySelector('#movieList').textContent).toContain('Classic Film');
+  });
+
+  it('sorts watched movies by rating when selected', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const page = {
+      results: [
+        {
+          id: 20,
+          title: 'Low Rated',
+          release_date: '2020-01-01',
+          vote_average: 7.4,
+          vote_count: 200,
+          overview: 'Solid enough.',
+          genre_ids: []
+        },
+        {
+          id: 21,
+          title: 'High Rated',
+          release_date: '2021-05-10',
+          vote_average: 9.4,
+          vote_count: 850,
+          overview: 'Critically acclaimed.',
+          genre_ids: []
+        }
+      ],
+      total_pages: 1
+    };
+    const creditsA = { cast: [], crew: [] };
+    const creditsB = { cast: [], crew: [] };
+    const genres = { genres: [] };
+
+    configureFetchResponses([page, creditsA, creditsB, genres]);
+
+    await initMoviesPanel();
+
+    const cards = Array.from(document.querySelectorAll('#movieList li'));
+    const lowCard = cards.find(card => card.textContent.includes('Low Rated'));
+    const highCard = cards.find(card => card.textContent.includes('High Rated'));
+    const lowWatch = lowCard
+      ? Array.from(lowCard.querySelectorAll('button')).find(b => b.textContent === 'Watched Already')
+      : null;
+    const highWatch = highCard
+      ? Array.from(highCard.querySelectorAll('button')).find(b => b.textContent === 'Watched Already')
+      : null;
+
+    expect(lowWatch).toBeTruthy();
+    expect(highWatch).toBeTruthy();
+
+    lowWatch?.click();
+    highWatch?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.querySelectorAll('#watchedMoviesList .movie-card')).toHaveLength(2);
+
+    const sortSelect = document.getElementById('watchedMoviesSort');
+    sortSelect.value = 'ratingDesc';
+    sortSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const titlesDesc = Array.from(
+      document.querySelectorAll('#watchedMoviesList .movie-card h3')
+    ).map(el => el.textContent);
+    expect(titlesDesc[0]).toContain('High Rated');
+    expect(titlesDesc[1]).toContain('Low Rated');
+
+    sortSelect.value = 'ratingAsc';
+    sortSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const titlesAsc = Array.from(
+      document.querySelectorAll('#watchedMoviesList .movie-card h3')
+    ).map(el => el.textContent);
+    expect(titlesAsc[0]).toContain('Low Rated');
+    expect(titlesAsc[1]).toContain('High Rated');
   });
 
   it('saves preferences to Firestore for authenticated users', async () => {
