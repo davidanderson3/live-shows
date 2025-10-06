@@ -118,6 +118,32 @@ describe('initRecipesPanel', () => {
     expect(items.length).toBe(10);
   });
 
+  it('orders recipes by spoonacular score descending', async () => {
+    const mockResponse = {
+      results: [
+        { title: 'Middle', spoonacularScore: 25 },
+        { title: 'Top', spoonacularScore: 90 },
+        { title: 'No Score' }
+      ]
+    };
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockResponse)
+      })
+    );
+
+    await initRecipesPanel();
+    document.getElementById('recipesQuery').value = 'scores';
+    document.getElementById('recipesSearchBtn').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const titles = Array.from(
+      document.querySelectorAll('#recipesList .recipe-card__title')
+    ).map(el => el.textContent);
+    expect(titles.slice(0, 3)).toEqual(['Top', 'Middle', 'No Score']);
+  });
+
   it('allows hiding a recipe persistently', async () => {
     const store = {};
     global.localStorage = {

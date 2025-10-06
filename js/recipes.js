@@ -122,8 +122,14 @@ export async function initRecipesPanel() {
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const recipes = Array.isArray(data?.results)
-        ? data.results.map(r => {
+      const sortedResults = Array.isArray(data?.results)
+        ? [...data.results].sort((a, b) => {
+            const scoreA = typeof a?.spoonacularScore === 'number' ? a.spoonacularScore : 0;
+            const scoreB = typeof b?.spoonacularScore === 'number' ? b.spoonacularScore : 0;
+            return scoreB - scoreA;
+          })
+        : [];
+      const recipes = sortedResults.map(r => {
             const instructions = Array.isArray(r.analyzedInstructions)
               ? r.analyzedInstructions
                   .flatMap(instruction => instruction?.steps || [])
@@ -167,8 +173,7 @@ export async function initRecipesPanel() {
               sourceUrl: r.sourceUrl || '',
               winePairing
             };
-          })
-        : [];
+          });
       if (recipes.length === 0) {
         listEl.textContent = 'No recipes found.';
         return;
