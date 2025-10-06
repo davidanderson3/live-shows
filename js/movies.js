@@ -213,7 +213,18 @@ async function callTmdbProxy(endpoint, params = {}) {
       if (response.status >= 500) return true;
       if (response.status === 401 || response.status === 403) return true;
       const bodyText = typeof error.body === 'string' ? error.body : '';
-      return bodyText.includes('tmdb_key_not_configured');
+      if (!bodyText) return false;
+      if (bodyText.includes('tmdb_key_not_configured')) return true;
+      if (response.status === 400) {
+        try {
+          const parsed = JSON.parse(bodyText);
+          const code = parsed?.error;
+          return code === 'unsupported_endpoint' || code === 'invalid_endpoint_params';
+        } catch (_) {
+          return false;
+        }
+      }
+      return false;
     })();
 
     if (shouldDisableProxy) {
@@ -288,23 +299,38 @@ function applyCreditsToMovie(movie, credits) {
   }
 }
 
-async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
-  if (!movieId) return null;
+async function fetchCreditsDirect(movieId, apiKey) {
+  if (!apiKey) return null;
   try {
-    if (usingProxy) {
-      return await callTmdbProxy('credits', { movie_id: movieId });
-    }
-
-    if (!apiKey) return null;
     const url = new URL(`https://api.themoviedb.org/3/movie/${movieId}/credits`);
     url.searchParams.set('api_key', apiKey);
     const res = await fetch(url.toString());
     if (!res.ok) return null;
     return await res.json();
   } catch (err) {
-    console.error('Failed to fetch credits for movie', movieId, err);
+    console.error('Failed to fetch credits directly for movie', movieId, err);
     return null;
   }
+}
+
+async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
+  if (!movieId) return null;
+  if (usingProxy) {
+    try {
+      const credits = await callTmdbProxy('credits', { movie_id: movieId });
+      if (credits) {
+        return credits;
+      }
+    } catch (err) {
+      console.warn('TMDB proxy credits request failed, attempting direct fallback', err);
+      disableTmdbProxy();
+      const direct = await fetchCreditsDirect(movieId, apiKey);
+      if (direct) return direct;
+      return null;
+    }
+  }
+
+  return fetchCreditsDirect(movieId, apiKey);
 }
 
 async function enrichMoviesWithCredits(movies, options) {
