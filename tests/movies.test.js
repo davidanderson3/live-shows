@@ -295,6 +295,7 @@ describe('initMoviesPanel', () => {
     const meta = document.querySelector('#savedMoviesList .movie-meta')?.textContent || '';
     expect(meta).toContain('Genres: Drama');
     expect(meta).toContain('Director: Indie Director');
+    expect(meta).toContain('Cast: Breakout Star');
   });
 
   it('routes movie requests through the Cloud Function proxy', async () => {
@@ -423,6 +424,8 @@ describe('initMoviesPanel', () => {
     expect(document.querySelector('#watchedMoviesList').textContent).toContain('Classic Film');
     const watchedMeta = document.querySelector('#watchedMoviesList .movie-meta')?.textContent || '';
     expect(watchedMeta).toContain('Genres: Adventure');
+    expect(watchedMeta).toContain('Director: Famed Director');
+    expect(watchedMeta).toContain('Cast: Iconic Star');
     
     const removeBtn = document.querySelector('#watchedMoviesList button');
     removeBtn?.click();
