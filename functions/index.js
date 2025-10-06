@@ -1,8 +1,93 @@
 const functions = require('firebase-functions');
+const admin = require('firebase-admin');
 
 const DEFAULT_REGION = 'us-central1';
 const TMDB_BASE_URL = 'https://api.themoviedb.org';
 const SPOONACULAR_BASE_URL = 'https://api.spoonacular.com/recipes/complexSearch';
+const RECIPE_CACHE_COLLECTION = 'recipeCache';
+const RECIPE_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
+
+let firestore = null;
+let firestoreInitFailed = false;
+
+function getFirestore() {
+  if (firestore || firestoreInitFailed) {
+    return firestore;
+  }
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp();
+    }
+    firestore = admin.firestore();
+  } catch (err) {
+    firestoreInitFailed = true;
+    firestore = null;
+    console.error('Failed to initialize Firestore', err);
+  }
+  return firestore;
+}
+
+function normalizeRecipeQuery(query) {
+  return String(query || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function recipeCacheId(query) {
+  const normalized = normalizeRecipeQuery(query);
+  if (!normalized) return 'default';
+  return Buffer.from(normalized, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+async function readRecipeCache(query) {
+  const db = getFirestore();
+  if (!db) return null;
+  try {
+    const doc = await db.collection(RECIPE_CACHE_COLLECTION).doc(recipeCacheId(query)).get();
+    if (!doc.exists) return null;
+    const data = doc.data() || {};
+    const fetchedAt = data.fetchedAt;
+    if (!fetchedAt || typeof fetchedAt.toMillis !== 'function') return null;
+    if (Date.now() - fetchedAt.toMillis() > RECIPE_CACHE_TTL_MS) return null;
+    if (typeof data.body !== 'string' || !data.body) return null;
+    return {
+      status: typeof data.status === 'number' ? data.status : 200,
+      contentType:
+        typeof data.contentType === 'string' && data.contentType
+          ? data.contentType
+          : 'application/json',
+      body: data.body
+    };
+  } catch (err) {
+    console.error('Failed to read recipe cache', err);
+    return null;
+  }
+}
+
+async function writeRecipeCache(query, status, contentType, body) {
+  const db = getFirestore();
+  if (!db) return;
+  try {
+    await db
+      .collection(RECIPE_CACHE_COLLECTION)
+      .doc(recipeCacheId(query))
+      .set({
+        query,
+        normalizedQuery: normalizeRecipeQuery(query),
+        status,
+        contentType,
+        body,
+        fetchedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+  } catch (err) {
+    console.error('Failed to write recipe cache', err);
+  }
+}
 
 const ALLOWED_ENDPOINTS = {
   discover: { path: '/3/discover/movie' },
@@ -168,6 +253,14 @@ exports.spoonacularProxy = functions
       apiKey
     });
 
+    const cached = await readRecipeCache(query);
+    if (cached) {
+      res.status(cached.status);
+      res.type(cached.contentType);
+      res.send(cached.body);
+      return;
+    }
+
     try {
       const spoonacularResponse = await fetch(`${SPOONACULAR_BASE_URL}?${params.toString()}`, {
         headers: {
@@ -176,8 +269,12 @@ exports.spoonacularProxy = functions
       });
 
       const payload = await spoonacularResponse.text();
+      const contentType = spoonacularResponse.headers.get('content-type') || 'application/json';
+      if (spoonacularResponse.ok) {
+        await writeRecipeCache(query, spoonacularResponse.status, contentType, payload);
+      }
       res.status(spoonacularResponse.status);
-      res.type(spoonacularResponse.headers.get('content-type') || 'application/json');
+      res.type(contentType);
       res.send(payload);
     } catch (err) {
       console.error('Spoonacular proxy failed', err);
