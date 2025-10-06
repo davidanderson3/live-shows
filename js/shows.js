@@ -577,6 +577,19 @@ export async function initShowsPanel() {
   const statusEl = document.getElementById('spotifyStatus');
   const apiKeyInput = document.getElementById('ticketmasterApiKey');
   const tabsContainer = document.getElementById('showsTabs');
+  const discoverBtn = document.getElementById('ticketmasterDiscoverBtn');
+
+  const setDiscoverButtonState = isLoading => {
+    if (!discoverBtn) return;
+    if (!discoverBtn.dataset.defaultText) {
+      discoverBtn.dataset.defaultText = discoverBtn.textContent.trim() || 'Discover';
+    }
+    discoverBtn.disabled = isLoading;
+    discoverBtn.classList.toggle('is-loading', isLoading);
+    discoverBtn.textContent = isLoading
+      ? 'Loading…'
+      : discoverBtn.dataset.defaultText;
+  };
 
   if (tabsContainer) {
     const tabButtons = Array.from(tabsContainer.querySelectorAll('.shows-tab'));
@@ -738,7 +751,12 @@ export async function initShowsPanel() {
     }
   }
 
-  const loadShows = async () => {
+  async function loadShows({ triggeredByUser = false } = {}) {
+    if (triggeredByUser) setDiscoverButtonState(true);
+    const stopLoading = () => {
+      if (triggeredByUser) setDiscoverButtonState(false);
+    };
+
     const token =
       tokenInput?.value.trim() ||
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
@@ -751,6 +769,7 @@ export async function initShowsPanel() {
       currentShows = [];
       currentSuggestions = [];
       listEl.textContent = 'Please login to Spotify.';
+      stopLoading();
       return;
     }
 
@@ -763,6 +782,7 @@ export async function initShowsPanel() {
       currentShows = [];
       currentSuggestions = [];
       listEl.textContent = 'Please enter your Ticketmaster API key.';
+      stopLoading();
       return;
     }
 
@@ -903,10 +923,23 @@ export async function initShowsPanel() {
       currentShows = [];
       currentSuggestions = [];
       listEl.textContent = 'Failed to load shows.';
+    } finally {
+      stopLoading();
     }
-  };
+  }
 
   tokenBtn?.addEventListener('click', startAuth);
+
+  if (discoverBtn) {
+    if (discoverBtn._showsClickHandler) {
+      discoverBtn.removeEventListener('click', discoverBtn._showsClickHandler);
+    }
+    const handler = () => {
+      loadShows({ triggeredByUser: true });
+    };
+    discoverBtn._showsClickHandler = handler;
+    discoverBtn.addEventListener('click', handler);
+  }
 
   await loadShows();
 }
