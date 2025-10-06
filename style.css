@@ -2847,12 +2847,142 @@ h2 {
   font-size: 0.85rem;
   font-weight: 600;
   transition: background 0.2s ease, transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  cursor: pointer;
+}
+
+.restaurant-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
 }
 
 .restaurant-action:hover,
 .restaurant-action:focus-visible {
   background: #2e5346;
   transform: translateY(-1px);
+}
+
+.restaurant-action.is-active {
+  background: #2e5346;
+}
+
+.restaurant-action--secondary {
+  background: #ffffff;
+  color: #1f3631;
+  border: 1px solid rgba(33, 65, 54, 0.2);
+}
+
+.restaurant-action--secondary:hover,
+.restaurant-action--secondary:focus-visible {
+  background: rgba(33, 65, 54, 0.12);
+  color: #1f3631;
+  transform: none;
+}
+
+.restaurant-action--danger {
+  background: #7a2e26;
+}
+
+.restaurant-action--danger:hover,
+.restaurant-action--danger:focus-visible {
+  background: #9d3d32;
+}
+
+.restaurants-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.restaurants-tab {
+  border: 1px solid rgba(33, 65, 54, 0.2);
+  background: #ffffff;
+  color: #1f3631;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.restaurants-tab.is-active {
+  background: #1f3631;
+  color: #ffffff;
+  border-color: #1f3631;
+}
+
+.restaurants-tab:focus-visible {
+  outline: 2px solid rgba(31, 54, 49, 0.4);
+  outline-offset: 2px;
+}
+
+.restaurants-section {
+  display: block;
+}
+
+.restaurants-section[hidden] {
+  display: none;
+}
+
+.restaurants-hidden {
+  margin-top: 2rem;
+  border-top: 1px solid rgba(33, 65, 54, 0.12);
+  padding-top: 1.5rem;
+  display: none;
+  gap: 0.75rem;
+  flex-direction: column;
+}
+
+.restaurants-hidden.is-visible {
+  display: flex;
+}
+
+.restaurants-hidden h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: #1f3631;
+}
+
+.restaurants-hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.restaurants-hidden-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 12px;
+  background: rgba(33, 65, 54, 0.08);
+}
+
+.restaurants-hidden-name {
+  font-weight: 600;
+  color: #1f3631;
+}
+
+.restaurants-hidden button {
+  background: transparent;
+  border: 1px solid rgba(31, 54, 49, 0.35);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-weight: 600;
+  color: #1f3631;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.restaurants-hidden button:hover,
+.restaurants-hidden button:focus-visible {
+  background: rgba(31, 54, 49, 0.12);
+  border-color: #1f3631;
 }
 
 @media (max-width: 640px) {

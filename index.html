@@ -138,7 +138,46 @@
           role="img"
           aria-label="Map showing nearby restaurant locations"
         ></div>
-        <div id="restaurantsResults" class="restaurants-list decision-container" aria-live="polite"></div>
+        <div id="restaurantsResults" class="restaurants-list decision-container" aria-live="polite">
+          <div class="restaurants-tabs" role="tablist" aria-label="Restaurant lists">
+            <button
+              type="button"
+              id="restaurantsNearbyTab"
+              class="restaurants-tab is-active"
+              data-view="nearby"
+              role="tab"
+              aria-selected="true"
+              aria-controls="restaurantsNearby"
+            >
+              Nearby
+            </button>
+            <button
+              type="button"
+              id="restaurantsSavedTab"
+              class="restaurants-tab"
+              data-view="saved"
+              role="tab"
+              aria-selected="false"
+              aria-controls="restaurantsSaved"
+            >
+              Saved
+            </button>
+          </div>
+          <div
+            id="restaurantsNearby"
+            class="restaurants-section"
+            role="tabpanel"
+            aria-labelledby="restaurantsNearbyTab"
+          ></div>
+          <div
+            id="restaurantsSaved"
+            class="restaurants-section"
+            role="tabpanel"
+            aria-labelledby="restaurantsSavedTab"
+            hidden
+          ></div>
+          <div id="restaurantsHiddenSection" class="restaurants-hidden" aria-live="polite"></div>
+        </div>
       </div>
     </div>
   </div>

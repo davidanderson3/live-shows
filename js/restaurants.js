@@ -7,7 +7,180 @@ let initialized = false;
 let mapInstance = null;
 let mapMarkersLayer = null;
 
+const STORAGE_KEYS = {
+  saved: 'restaurants:saved',
+  hidden: 'restaurants:hidden'
+};
+
+let savedRestaurants = [];
+let hiddenRestaurants = [];
+let nearbyRestaurants = [];
+let visibleNearbyRestaurants = [];
+let currentView = 'nearby';
+let isFetchingNearby = false;
+
+const domRefs = {
+  resultsRoot: null,
+  nearbyContainer: null,
+  savedContainer: null,
+  hiddenContainer: null,
+  tabButtons: []
+};
+
 const MAX_DISTANCE_METERS = 160934; // ~100 miles
+
+function normalizeId(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
+function sanitizeRestaurant(rest) {
+  if (!rest || typeof rest !== 'object') return null;
+  const allowedKeys = [
+    'id',
+    'name',
+    'address',
+    'city',
+    'state',
+    'zip',
+    'phone',
+    'rating',
+    'reviewCount',
+    'price',
+    'categories',
+    'cuisine',
+    'latitude',
+    'longitude',
+    'url',
+    'website',
+    'distance'
+  ];
+  const sanitized = {};
+  allowedKeys.forEach(key => {
+    if (key in rest) {
+      sanitized[key] = rest[key];
+    }
+  });
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
+function dedupeRestaurants(items = []) {
+  const map = new Map();
+  items.forEach(item => {
+    const sanitized = sanitizeRestaurant(item);
+    const id = normalizeId(sanitized?.id);
+    if (!id) return;
+    map.set(id, sanitized);
+  });
+  return Array.from(map.values());
+}
+
+function readStoredList(key) {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return dedupeRestaurants(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredList(key, list) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(list));
+  } catch {}
+}
+
+function loadStoredState() {
+  savedRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.saved));
+  hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
+}
+
+function persistSaved() {
+  writeStoredList(STORAGE_KEYS.saved, savedRestaurants);
+}
+
+function persistHidden() {
+  writeStoredList(STORAGE_KEYS.hidden, hiddenRestaurants);
+}
+
+function isSaved(id) {
+  const normalized = normalizeId(id);
+  if (!normalized) return false;
+  return savedRestaurants.some(item => normalizeId(item.id) === normalized);
+}
+
+function isHidden(id) {
+  const normalized = normalizeId(id);
+  if (!normalized) return false;
+  return hiddenRestaurants.some(item => normalizeId(item.id) === normalized);
+}
+
+function setSavedRestaurants(items) {
+  savedRestaurants = dedupeRestaurants(items);
+  persistSaved();
+}
+
+function setHiddenRestaurants(items) {
+  hiddenRestaurants = dedupeRestaurants(items);
+  persistHidden();
+}
+
+function updateSaveButtonState(button, restId) {
+  if (!button) return;
+  const saved = isSaved(restId);
+  button.textContent = saved ? 'Saved' : 'Save';
+  button.classList.toggle('is-active', saved);
+  button.setAttribute('aria-pressed', saved ? 'true' : 'false');
+}
+
+function toggleSaved(rest) {
+  if (!rest) return;
+  const id = normalizeId(rest.id);
+  if (!id) return;
+  const existingIndex = savedRestaurants.findIndex(item => normalizeId(item.id) === id);
+  if (existingIndex >= 0) {
+    savedRestaurants.splice(existingIndex, 1);
+  } else {
+    const sanitized = sanitizeRestaurant(rest);
+    if (sanitized) {
+      savedRestaurants.push(sanitized);
+    }
+  }
+  setSavedRestaurants(savedRestaurants);
+  renderAll();
+}
+
+function hideRestaurant(rest) {
+  if (!rest) return;
+  const id = normalizeId(rest.id);
+  if (!id) return;
+  if (!isHidden(id)) {
+    const sanitized = sanitizeRestaurant(rest);
+    if (sanitized) {
+      hiddenRestaurants.push(sanitized);
+      setHiddenRestaurants(hiddenRestaurants);
+    }
+  }
+  if (isSaved(id)) {
+    setSavedRestaurants(savedRestaurants.filter(item => normalizeId(item.id) !== id));
+  }
+  renderAll();
+}
+
+function restoreRestaurant(restId) {
+  const id = normalizeId(restId);
+  if (!id) return;
+  if (!hiddenRestaurants.length) return;
+  const filtered = hiddenRestaurants.filter(item => normalizeId(item.id) !== id);
+  if (filtered.length === hiddenRestaurants.length) return;
+  setHiddenRestaurants(filtered);
+  renderAll();
+}
 
 function parseCoordinate(value) {
   if (typeof value === 'number') {
@@ -71,13 +244,11 @@ function clearMap() {
 function renderLoading(container) {
   ensureMap();
   container.innerHTML = '<div class="restaurants-message">Loading nearby restaurants…</div>';
-  clearMap();
 }
 
 function renderMessage(container, message) {
   ensureMap();
   container.innerHTML = `<div class="restaurants-message">${message}</div>`;
-  clearMap();
 }
 
 function formatDistance(meters) {
@@ -245,7 +416,80 @@ function createActions(rest) {
     actions.appendChild(call);
   }
 
-  return actions.childNodes.length ? actions : null;
+  const saveButton = document.createElement('button');
+  saveButton.type = 'button';
+  saveButton.className = 'restaurant-action restaurant-action--secondary';
+  updateSaveButtonState(saveButton, rest.id);
+  saveButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleSaved(rest);
+  });
+  actions.appendChild(saveButton);
+
+  const hideButton = document.createElement('button');
+  hideButton.type = 'button';
+  hideButton.className = 'restaurant-action restaurant-action--danger';
+  hideButton.textContent = 'Hide Forever';
+  hideButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    hideRestaurant(rest);
+  });
+  actions.appendChild(hideButton);
+
+  return actions;
+}
+
+function createRestaurantCard(rest) {
+  const card = document.createElement('article');
+  card.className = 'restaurant-card';
+
+  const header = document.createElement('div');
+  header.className = 'restaurant-card__header';
+
+  const title = document.createElement('h3');
+  title.textContent = rest.name || 'Unnamed Restaurant';
+  header.appendChild(title);
+
+  const ratingBadge = createRatingBadge(rest.rating, rest.reviewCount);
+  if (ratingBadge) header.appendChild(ratingBadge);
+
+  card.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'restaurant-card__body';
+
+  const address = createAddress(rest);
+  if (address) body.appendChild(address);
+
+  const meta = createMetaList(rest);
+  if (meta) body.appendChild(meta);
+
+  const chips = createCuisineChips(rest);
+  if (chips) body.appendChild(chips);
+
+  card.appendChild(body);
+
+  const footer = document.createElement('div');
+  footer.className = 'restaurant-card__footer';
+
+  const distanceText = formatDistance(rest.distance);
+  if (distanceText) {
+    const distance = document.createElement('span');
+    distance.className = 'restaurant-distance';
+    distance.textContent = distanceText;
+    footer.appendChild(distance);
+  }
+
+  const actions = createActions(rest);
+  if (actions) footer.appendChild(actions);
+
+  if (footer.childNodes.length) {
+    card.appendChild(footer);
+  }
+
+  return card;
 }
 
 function updateMap(items = []) {
@@ -330,9 +574,16 @@ function filterByDistance(items, maxDistance) {
   return nearby.length ? nearby : items;
 }
 
-function renderResults(container, items) {
-  if (!items.length) {
-    renderMessage(container, 'No restaurants found.');
+function renderRestaurantsList(container, items, emptyMessage) {
+  if (!container) return;
+  const list = Array.isArray(items) ? items : [];
+  container.innerHTML = '';
+
+  if (!list.length) {
+    const message = document.createElement('div');
+    message.className = 'restaurants-message';
+    message.textContent = emptyMessage;
+    container.appendChild(message);
     return;
   }
 
@@ -341,61 +592,107 @@ function renderResults(container, items) {
   const grid = document.createElement('div');
   grid.className = 'restaurants-grid';
 
-  items.forEach(rest => {
-    const card = document.createElement('article');
-    card.className = 'restaurant-card';
-
-    const header = document.createElement('div');
-    header.className = 'restaurant-card__header';
-
-    const title = document.createElement('h3');
-    title.textContent = rest.name || 'Unnamed Restaurant';
-    header.appendChild(title);
-
-    const ratingBadge = createRatingBadge(rest.rating, rest.reviewCount);
-    if (ratingBadge) header.appendChild(ratingBadge);
-
-    card.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'restaurant-card__body';
-
-    const address = createAddress(rest);
-    if (address) body.appendChild(address);
-
-    const meta = createMetaList(rest);
-    if (meta) body.appendChild(meta);
-
-    const chips = createCuisineChips(rest);
-    if (chips) body.appendChild(chips);
-
-    card.appendChild(body);
-
-    const footer = document.createElement('div');
-    footer.className = 'restaurant-card__footer';
-
-    const distanceText = formatDistance(rest.distance);
-    if (distanceText) {
-      const distance = document.createElement('span');
-      distance.className = 'restaurant-distance';
-      distance.textContent = distanceText;
-      footer.appendChild(distance);
-    }
-
-    const actions = createActions(rest);
-    if (actions) footer.appendChild(actions);
-
-    if (footer.childNodes.length) {
-      card.appendChild(footer);
-    }
-
+  list.forEach(rest => {
+    const card = createRestaurantCard(rest);
     grid.appendChild(card);
   });
 
-  container.innerHTML = '';
   container.appendChild(grid);
+}
 
-  updateMap(items);
+function renderNearbySection() {
+  const container = domRefs.nearbyContainer;
+  if (!container) return;
+  if (isFetchingNearby && !nearbyRestaurants.length) return;
+  visibleNearbyRestaurants = nearbyRestaurants.filter(rest => !isHidden(rest.id));
+  renderRestaurantsList(container, visibleNearbyRestaurants, 'No restaurants found.');
+}
+
+function renderSavedSection() {
+  const container = domRefs.savedContainer;
+  if (!container) return;
+  let list = savedRestaurants;
+  const filtered = list.filter(rest => !isHidden(rest.id));
+  if (filtered.length !== list.length) {
+    setSavedRestaurants(filtered);
+    list = savedRestaurants;
+  }
+  renderRestaurantsList(container, list, 'No saved restaurants yet.');
+}
+
+function renderHiddenSection() {
+  const container = domRefs.hiddenContainer;
+  if (!container) return;
+  container.innerHTML = '';
+  if (!hiddenRestaurants.length) {
+    container.classList.remove('is-visible');
+    return;
+  }
+
+  container.classList.add('is-visible');
+
+  const heading = document.createElement('h4');
+  heading.textContent = 'Hidden Restaurants';
+  container.appendChild(heading);
+
+  const list = document.createElement('div');
+  list.className = 'restaurants-hidden-list';
+
+  hiddenRestaurants.forEach(rest => {
+    const item = document.createElement('div');
+    item.className = 'restaurants-hidden-item';
+
+    const name = document.createElement('span');
+    name.className = 'restaurants-hidden-name';
+    name.textContent = rest.name || 'Unnamed Restaurant';
+    item.appendChild(name);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Restore';
+    button.addEventListener('click', () => {
+      restoreRestaurant(rest.id);
+    });
+    item.appendChild(button);
+
+    list.appendChild(item);
+  });
+
+  container.appendChild(list);
+}
+
+function updateMapForCurrentView() {
+  if (currentView === 'saved') {
+    updateMap(savedRestaurants);
+  } else if (isFetchingNearby && !nearbyRestaurants.length) {
+    clearMap();
+  } else {
+    updateMap(visibleNearbyRestaurants);
+  }
+}
+
+function renderAll() {
+  renderNearbySection();
+  renderSavedSection();
+  renderHiddenSection();
+  updateMapForCurrentView();
+}
+
+function setActiveView(view) {
+  const targetView = view === 'saved' ? 'saved' : 'nearby';
+  currentView = targetView;
+  domRefs.tabButtons.forEach(button => {
+    const isActive = button.dataset.view === targetView;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  if (domRefs.nearbyContainer) {
+    domRefs.nearbyContainer.hidden = targetView !== 'nearby';
+  }
+  if (domRefs.savedContainer) {
+    domRefs.savedContainer.hidden = targetView !== 'saved';
+  }
+  updateMapForCurrentView();
 }
 
 async function reverseGeocodeCity(latitude, longitude) {
@@ -470,22 +767,31 @@ function getCurrentPosition() {
 }
 
 async function loadNearbyRestaurants(container) {
-  renderMessage(container, 'Requesting your location…');
+  const targetContainer = container || domRefs.nearbyContainer;
+  if (!targetContainer) return;
+
+  isFetchingNearby = true;
+  renderMessage(targetContainer, 'Requesting your location…');
+  clearMap();
 
   let position;
   try {
     position = await getCurrentPosition();
   } catch (err) {
     console.error('Geolocation error', err);
+    isFetchingNearby = false;
+    nearbyRestaurants = [];
+    visibleNearbyRestaurants = [];
     if (err && typeof err.code === 'number' && err.code === 1) {
-      renderMessage(container, 'Location access is required to show nearby restaurants.');
+      renderMessage(targetContainer, 'Location access is required to show nearby restaurants.');
     } else {
-      renderMessage(container, 'Unable to determine your location.');
+      renderMessage(targetContainer, 'Unable to determine your location.');
     }
+    updateMapForCurrentView();
     return;
   }
 
-  renderLoading(container);
+  renderLoading(targetContainer);
 
   try {
     const { latitude, longitude } = position.coords;
@@ -493,10 +799,18 @@ async function loadNearbyRestaurants(container) {
     const data = await fetchRestaurants({ latitude, longitude, city });
     const nearby = filterByDistance(data, MAX_DISTANCE_METERS);
     const sorted = sortByRating(nearby);
-    renderResults(container, sorted);
+    nearbyRestaurants = sorted;
+    isFetchingNearby = false;
+    renderAll();
   } catch (err) {
     console.error('Restaurant search failed', err);
-    renderMessage(container, err?.message || 'Failed to load restaurants.');
+    isFetchingNearby = false;
+    nearbyRestaurants = [];
+    visibleNearbyRestaurants = [];
+    renderMessage(targetContainer, err?.message || 'Failed to load restaurants.');
+    renderSavedSection();
+    renderHiddenSection();
+    updateMapForCurrentView();
   }
 }
 
@@ -507,10 +821,41 @@ export async function initRestaurantsPanel() {
   const resultsContainer = document.getElementById('restaurantsResults');
   if (!resultsContainer) return;
 
-  await loadNearbyRestaurants(resultsContainer);
+  domRefs.resultsRoot = resultsContainer;
+  domRefs.nearbyContainer = document.getElementById('restaurantsNearby');
+  domRefs.savedContainer = document.getElementById('restaurantsSaved');
+  domRefs.hiddenContainer = document.getElementById('restaurantsHiddenSection');
+  domRefs.tabButtons = Array.from(resultsContainer.querySelectorAll('.restaurants-tab'));
+
+  loadStoredState();
+
+  domRefs.tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      setActiveView(button.dataset.view);
+    });
+  });
+
+  renderSavedSection();
+  renderHiddenSection();
+  setActiveView(currentView);
+
+  await loadNearbyRestaurants(domRefs.nearbyContainer);
 }
 
 if (typeof window !== 'undefined') {
+  loadStoredState();
+  window.addEventListener('storage', event => {
+    if (event.key === STORAGE_KEYS.saved) {
+      savedRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.saved));
+      renderSavedSection();
+      updateMapForCurrentView();
+    } else if (event.key === STORAGE_KEYS.hidden) {
+      hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
+      renderHiddenSection();
+      renderNearbySection();
+      updateMapForCurrentView();
+    }
+  });
   window.initRestaurantsPanel = initRestaurantsPanel;
   window.dispatchEvent(new Event('restaurantsPanelReady'));
 }

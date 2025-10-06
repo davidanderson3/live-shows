@@ -2,12 +2,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
 function setupDom() {
-  return new JSDOM(`
+  return new JSDOM(
+    `
     <div id="restaurantsPanel">
       <div id="restaurantsMap"></div>
-      <div id="restaurantsResults"></div>
+      <div id="restaurantsResults">
+        <div class="restaurants-tabs" role="tablist">
+          <button type="button" class="restaurants-tab is-active" data-view="nearby" aria-selected="true"></button>
+          <button type="button" class="restaurants-tab" data-view="saved" aria-selected="false"></button>
+        </div>
+        <div id="restaurantsNearby"></div>
+        <div id="restaurantsSaved" hidden></div>
+        <div id="restaurantsHiddenSection"></div>
+      </div>
     </div>
-  `);
+  `,
+    { url: 'https://example.com' }
+  );
 }
 
 describe('initRestaurantsPanel', () => {
@@ -30,6 +41,7 @@ describe('initRestaurantsPanel', () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
+    window.localStorage.clear();
 
     const geoMock = {
       getCurrentPosition: vi.fn(success => {
@@ -76,6 +88,7 @@ describe('initRestaurantsPanel', () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
+    window.localStorage.clear();
 
     const geoMock = {
       getCurrentPosition: vi.fn((_, error) => {
@@ -101,6 +114,7 @@ describe('initRestaurantsPanel', () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
+    window.localStorage.clear();
 
     const geoMock = {
       getCurrentPosition: vi.fn(success => {
@@ -134,6 +148,7 @@ describe('initRestaurantsPanel', () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
+    window.localStorage.clear();
 
     const geoMock = {
       getCurrentPosition: vi.fn(success => {
@@ -167,5 +182,107 @@ describe('initRestaurantsPanel', () => {
     const results = document.getElementById('restaurantsResults');
     const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
     expect(headings).toEqual(['Local Favorite']);
+  });
+
+  it('allows saving and unsaving restaurants', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const sampleData = [
+      { id: 'one', name: 'Top Rated', rating: 4.8, reviewCount: 45, distance: 1200 },
+      { id: 'two', name: 'Second Place', rating: 4.1, reviewCount: 120, distance: 1500 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(sampleData)
+      });
+
+    await initRestaurantsPanel();
+
+    const saveButton = document.querySelector('#restaurantsNearby .restaurant-action--secondary');
+    expect(saveButton).toBeTruthy();
+    expect(saveButton.textContent).toBe('Save');
+    saveButton.click();
+
+    const savedContainer = document.getElementById('restaurantsSaved');
+    expect(savedContainer?.textContent).toContain('Top Rated');
+
+    const updatedSaveButton = document.querySelector('#restaurantsNearby .restaurant-action--secondary');
+    expect(updatedSaveButton).toBeTruthy();
+    expect(updatedSaveButton.textContent).toBe('Saved');
+    updatedSaveButton.click();
+
+    expect(savedContainer?.textContent).toContain('No saved restaurants yet.');
+  });
+
+  it('moves hidden restaurants to the hidden section', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const sampleData = [
+      { id: 'one', name: 'Top Rated', rating: 4.8, reviewCount: 45, distance: 1200 },
+      { id: 'two', name: 'Second Place', rating: 4.1, reviewCount: 120, distance: 1500 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(sampleData)
+      });
+
+    await initRestaurantsPanel();
+
+    const hideButton = Array.from(
+      document.querySelectorAll('#restaurantsNearby .restaurant-action--danger')
+    )[0];
+    expect(hideButton).toBeTruthy();
+    hideButton.click();
+
+    const nearbyHeadings = Array.from(
+      document.querySelectorAll('#restaurantsNearby h3')
+    ).map(el => el.textContent);
+    expect(nearbyHeadings).toEqual(['Second Place']);
+
+    const hiddenSection = document.getElementById('restaurantsHiddenSection');
+    expect(hiddenSection?.textContent).toContain('Top Rated');
+    expect(hiddenSection?.classList.contains('is-visible')).toBe(true);
   });
 });
