@@ -118,7 +118,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [{ id: 28, name: 'Action' }] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -182,7 +182,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -231,7 +231,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, creditsHigh, creditsLow, genres]);
+    configureFetchResponses([page, empty, creditsHigh, creditsLow, genres]);
 
     await initMoviesPanel();
 
@@ -266,7 +266,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -321,7 +321,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
     const calledUrls = fetch.mock.calls.map(args => args[0]);
@@ -359,7 +359,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
 
@@ -407,7 +407,7 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    configureFetchResponses([page, empty, empty, credits, genres]);
+    configureFetchResponses([page, empty, credits, genres]);
 
     await initMoviesPanel();
 

@@ -3,12 +3,14 @@ import { getCurrentUser, awaitAuthUser, db } from './auth.js';
 const MOVIE_PREFS_KEY = 'moviePreferences';
 const API_KEY_STORAGE = 'moviesApiKey';
 const DEFAULT_INTEREST = 3;
-const MAX_DISCOVER_PAGES = 3;
+const INITIAL_DISCOVER_PAGES = 3;
+const MAX_DISCOVER_PAGES = 10;
 const MAX_CREDIT_REQUESTS = 20;
 const PREF_COLLECTION = 'moviePreferences';
 const MIN_VOTE_AVERAGE = 7;
 const MIN_VOTE_COUNT = 50;
 const MIN_PRIORITY_RESULTS = 12;
+const MIN_FEED_RESULTS = 10;
 
 const DEFAULT_TMDB_PROXY_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
@@ -383,6 +385,16 @@ async function clearStatus(movieId) {
   refreshUI();
 }
 
+function getFeedMovies(movies) {
+  if (!Array.isArray(movies) || !movies.length) return [];
+
+  const suppressed = new Set(['watched', 'notInterested', 'interested']);
+  return movies.filter(movie => {
+    const pref = currentPrefs[String(movie.id)];
+    return !pref || !suppressed.has(pref.status);
+  });
+}
+
 function renderFeed() {
   const listEl = domRefs.list;
   if (!listEl) return;
@@ -392,11 +404,7 @@ function renderFeed() {
     return;
   }
 
-  const suppressed = new Set(['watched', 'notInterested', 'interested']);
-  const feedMovies = currentMovies.filter(m => {
-    const pref = currentPrefs[String(m.id)];
-    return !pref || !suppressed.has(pref.status);
-  });
+  const feedMovies = getFeedMovies(currentMovies);
 
   if (!feedMovies.length) {
     listEl.innerHTML = '<em>No new movies right now.</em>';
@@ -693,29 +701,23 @@ function applyPriorityOrdering(movies) {
     .sort((a, b) => (b.__priority ?? 0) - (a.__priority ?? 0));
 }
 
-async function fetchMoviesDirect(apiKey) {
-  const movies = [];
-  const seen = new Set();
-  for (let page = 1; page <= MAX_DISCOVER_PAGES; page++) {
-    const params = new URLSearchParams({
-      api_key: apiKey,
-      sort_by: 'popularity.desc',
-      include_adult: 'false',
-      include_video: 'false',
-      language: 'en-US',
-      page: String(page)
-    });
-    const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${params.toString()}`);
-    if (!res.ok) throw new Error('Failed to fetch movies');
-    const data = await res.json();
-    (data.results || []).forEach(movie => {
-      if (!seen.has(movie.id)) {
-        seen.add(movie.id);
-        movies.push(movie);
-      }
-    });
-  }
-  return movies;
+async function fetchDiscoverPageDirect(apiKey, page) {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    sort_by: 'popularity.desc',
+    include_adult: 'false',
+    include_video: 'false',
+    language: 'en-US',
+    page: String(page)
+  });
+  const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch movies');
+  const data = await res.json();
+  const totalPages = Number(data.total_pages);
+  return {
+    results: Array.isArray(data.results) ? data.results : [],
+    totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : null
+  };
 }
 
 async function fetchGenreMapDirect(apiKey) {
@@ -729,25 +731,63 @@ async function fetchGenreMapDirect(apiKey) {
   }
 }
 
-async function fetchMoviesFromProxy() {
-  const movies = [];
+async function fetchDiscoverPageFromProxy(page) {
+  const data = await callTmdbProxy('discover', {
+    sort_by: 'popularity.desc',
+    include_adult: 'false',
+    include_video: 'false',
+    language: 'en-US',
+    page: String(page)
+  });
+  const totalPages = Number(data?.total_pages);
+  return {
+    results: Array.isArray(data?.results) ? data.results : [],
+    totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : null
+  };
+}
+
+async function fetchMovies({ usingProxy, apiKey, minFeedSize = MIN_FEED_RESULTS }) {
   const seen = new Set();
-  for (let page = 1; page <= MAX_DISCOVER_PAGES; page++) {
-    const data = await callTmdbProxy('discover', {
-      sort_by: 'popularity.desc',
-      include_adult: 'false',
-      include_video: 'false',
-      language: 'en-US',
-      page: String(page)
-    });
-    (data.results || []).forEach(movie => {
+  const collected = [];
+  let prioritized = [];
+  let page = 1;
+  let totalPages = Infinity;
+
+  while (page <= MAX_DISCOVER_PAGES && page <= totalPages) {
+    const { results, totalPages: reportedTotal } = usingProxy
+      ? await fetchDiscoverPageFromProxy(page)
+      : await fetchDiscoverPageDirect(apiKey, page);
+
+    if (Number.isFinite(reportedTotal) && reportedTotal > 0) {
+      totalPages = reportedTotal;
+    }
+
+    const pageResults = Array.isArray(results) ? results : [];
+    pageResults.forEach(movie => {
       if (!seen.has(movie.id)) {
         seen.add(movie.id);
-        movies.push(movie);
+        collected.push(movie);
       }
     });
+
+    prioritized = applyPriorityOrdering(collected);
+
+    const shouldCheckMinimum = page >= INITIAL_DISCOVER_PAGES;
+    if (shouldCheckMinimum) {
+      const feedMovies = getFeedMovies(prioritized);
+      if (feedMovies.length >= minFeedSize) {
+        return prioritized;
+      }
+    }
+
+    if (!pageResults.length && (!Number.isFinite(totalPages) || page >= totalPages)) {
+      break;
+    }
+
+    page += 1;
   }
-  return movies;
+
+  return prioritized.length ? prioritized : applyPriorityOrdering(collected);
 }
 
 async function fetchGenreMapFromProxy() {
@@ -800,9 +840,7 @@ async function loadMovies() {
 
   listEl.innerHTML = '<em>Loading...</em>';
   try {
-    const movies = applyPriorityOrdering(
-      usingProxy ? await fetchMoviesFromProxy() : await fetchMoviesDirect(apiKey)
-    );
+    const movies = await fetchMovies({ usingProxy, apiKey, minFeedSize: MIN_FEED_RESULTS });
     await enrichMoviesWithCredits(movies, { usingProxy, apiKey });
     const genres = usingProxy ? await fetchGenreMapFromProxy() : await fetchGenreMapDirect(apiKey);
     currentMovies = movies;
