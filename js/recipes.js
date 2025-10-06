@@ -3,32 +3,6 @@ const API_BASE_URL =
   (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
   (typeof window !== 'undefined' && window.location?.origin) ||
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
-const API_NINJAS_ENDPOINT = 'https://api.api-ninjas.com/v1/recipe';
-
-const getStoredApiKey = () => {
-  try {
-    return localStorage.getItem('recipesApiKey') || '';
-  } catch (err) {
-    console.error('Failed to read API key from storage', err);
-    return '';
-  }
-};
-
-const storeApiKey = key => {
-  try {
-    if (key) {
-      localStorage.setItem('recipesApiKey', key);
-    } else {
-      if (typeof localStorage.removeItem === 'function') {
-        localStorage.removeItem('recipesApiKey');
-      } else {
-        localStorage.setItem('recipesApiKey', '');
-      }
-    }
-  } catch (err) {
-    console.error('Failed to store API key', err);
-  }
-};
 
 const stripHtml = text =>
   typeof text === 'string'
@@ -176,22 +150,10 @@ export async function initRecipesPanel() {
   const listEl = document.getElementById('recipesList');
   if (!listEl) return;
   const queryInput = document.getElementById('recipesQuery');
-  const apiKeyContainer = document.getElementById('recipesApiKeyContainer');
-  const apiKeyInput = document.getElementById('recipesApiKey');
   const searchBtn = document.getElementById('recipesSearchBtn');
 
   const savedQuery = localStorage.getItem('recipesQuery') || '';
   if (queryInput) queryInput.value = savedQuery;
-  const savedApiKey = getStoredApiKey();
-  if (apiKeyInput && savedApiKey) {
-    apiKeyInput.value = savedApiKey;
-  }
-  if (apiKeyInput) {
-    apiKeyInput.addEventListener('change', () => {
-      const key = apiKeyInput.value.trim();
-      storeApiKey(key);
-    });
-  }
 
   const loadRecipes = async () => {
     const query = queryInput?.value.trim();
@@ -201,6 +163,7 @@ export async function initRecipesPanel() {
     }
     if (searchBtn) searchBtn.disabled = true;
     listEl.innerHTML = '<em>Loading...</em>';
+    let proxyUrl = '';
     try {
       const base = API_BASE_URL.replace(/\/$/, '');
       let proxyPath = '/api/spoonacular';
@@ -214,45 +177,16 @@ export async function initRecipesPanel() {
           proxyPath = '/spoonacularProxy';
         }
       }
-      const proxyUrl = `${base}${proxyPath}?query=${encodeURIComponent(query)}`;
-      const tryProxyFetch = async () => {
-        const res = await fetch(proxyUrl);
-        if (!res.ok) throw createError(`HTTP ${res.status}`, 'proxy_http_error');
-        return res.json();
-      };
-      const tryApiNinjasFetch = async () => {
-        const key = (apiKeyInput?.value || '').trim() || getStoredApiKey();
-        if (!key) {
-          throw createError('Missing API key', 'missing_api_key');
-        }
-        storeApiKey(key);
-        const ninjasUrl = `${API_NINJAS_ENDPOINT}?query=${encodeURIComponent(query)}`;
-        const res = await fetch(ninjasUrl, {
-          headers: {
-            'X-Api-Key': key
-          }
-        });
-        if (!res.ok) {
-          throw createError(`HTTP ${res.status}`, 'api_ninjas_http_error');
-        }
-        return res.json();
-      };
-
-      let payload;
-      let usedFallback = false;
-      try {
-        payload = await tryProxyFetch();
-      } catch (proxyError) {
-        console.error('Proxy recipes fetch failed, trying API Ninjas', proxyError);
-        if (apiKeyContainer) {
-          apiKeyContainer.style.display = 'inline-block';
-        }
-        payload = await tryApiNinjasFetch();
-        usedFallback = true;
+      proxyUrl = `${base}${proxyPath}?query=${encodeURIComponent(query)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw createError(`HTTP ${response.status}`, 'proxy_http_error');
       }
 
+      const payload = await response.json();
+
       const sortedResults = normalizeResults(payload)
-        .map(result => ({ result, source: usedFallback ? 'ninjas' : 'proxy' }))
+        .map(result => ({ result }))
         .sort((a, b) => {
           const scoreA = typeof a.result?.spoonacularScore === 'number' ? a.result.spoonacularScore : 0;
           const scoreB = typeof b.result?.spoonacularScore === 'number' ? b.result.spoonacularScore : 0;
@@ -542,9 +476,6 @@ export async function initRecipesPanel() {
       localStorage.setItem('recipesQuery', query);
     } catch (err) {
       console.error('Failed to load recipes', err);
-      if (err?.code === 'missing_api_key' && apiKeyContainer) {
-        apiKeyContainer.style.display = 'inline-block';
-      }
       const instructions = document.createElement('div');
       instructions.className = 'recipes-error';
       instructions.innerHTML = `
@@ -552,7 +483,6 @@ export async function initRecipesPanel() {
         <p>To fix this locally:</p>
         <ol>
           <li>If you have a proxy server, make sure it is running so <code>${proxyUrl}</code> is accessible.</li>
-          <li>Otherwise, enter your API Ninjas key above. We'll store it safely in this browser so you only need to enter it once.</li>
           <li>You can also set <code>window.apiBaseUrl</code> before calling <code>initRecipesPanel()</code> to point at a hosted proxy.</li>
         </ol>
         <p>After updating the configuration, try searching again.</p>

@@ -45,6 +45,6 @@ npm test
 
 ### Recipes API
 
-The app first tries to query the hosted Spoonacular proxy at `/api/spoonacular` (or `/spoonacularProxy` when using the Cloud Functions deployment). If the proxy cannot be reached, you can supply an [API Ninjas Recipe API](https://api-ninjas.com/api/recipe) key in the Recipes tab and the app will call their endpoint directly. The key is stored only in your browser's local storage so you do not need to re-enter it on every visit.
+The recipes tab queries the hosted Spoonacular proxy at `/api/spoonacular` (or `/spoonacularProxy` when using the Cloud Functions deployment). The proxy requires a Spoonacular API key to be configured on the server or Cloud Function.
 
 To run the proxy locally, create a `.env` file with `SPOONACULAR_KEY=your_api_key_here` and restart the server with `npm start`.
