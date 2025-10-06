@@ -237,6 +237,57 @@ app.get('/api/restaurants', async (req, res) => {
 });
 
 // --- Ticketmaster proxy ---
+const TICKETMASTER_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
+const TICKETMASTER_CACHE_MAX_ENTRIES = 100;
+const TICKETMASTER_MIN_INTERVAL_MS = 300;
+
+const ticketmasterCache = new Map();
+let ticketmasterQueue = Promise.resolve();
+let ticketmasterLastRequestTime = 0;
+
+function ticketmasterCacheKey(keyword = '', apiKey = '') {
+  return `${apiKey.trim().toLowerCase()}::${keyword.trim().toLowerCase()}`;
+}
+
+function getTicketmasterCacheEntry(key) {
+  const entry = ticketmasterCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > TICKETMASTER_CACHE_TTL_MS) {
+    ticketmasterCache.delete(key);
+    return null;
+  }
+  // Refresh LRU order by reinserting the key.
+  ticketmasterCache.delete(key);
+  ticketmasterCache.set(key, entry);
+  return entry;
+}
+
+function setTicketmasterCacheEntry(key, value) {
+  ticketmasterCache.set(key, { ...value, timestamp: Date.now() });
+  if (ticketmasterCache.size > TICKETMASTER_CACHE_MAX_ENTRIES) {
+    const oldestKey = ticketmasterCache.keys().next().value;
+    if (oldestKey) {
+      ticketmasterCache.delete(oldestKey);
+    }
+  }
+}
+
+async function scheduleTicketmasterFetch(url) {
+  const run = ticketmasterQueue
+    .catch(() => null)
+    .then(async () => {
+      const now = Date.now();
+      const waitMs = Math.max(0, ticketmasterLastRequestTime + TICKETMASTER_MIN_INTERVAL_MS - now);
+      if (waitMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+      }
+      ticketmasterLastRequestTime = Date.now();
+      return fetch(url);
+    });
+  ticketmasterQueue = run;
+  return run;
+}
+
 app.get('/api/ticketmaster', async (req, res) => {
   const { apiKey: queryKey, keyword } = req.query || {};
   if (!keyword) {
@@ -248,13 +299,22 @@ app.get('/api/ticketmaster', async (req, res) => {
     return res.status(500).json({ error: 'missing ticketmaster api key' });
   }
 
+  const cacheKey = ticketmasterCacheKey(keyword, effectiveKey);
+  const cached = getTicketmasterCacheEntry(cacheKey);
+  if (cached) {
+    return res.status(cached.status).type('application/json').send(cached.text);
+  }
+
   const url =
     `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${encodeURIComponent(
       effectiveKey
     )}&classificationName=music&keyword=${encodeURIComponent(keyword)}`;
   try {
-    const response = await fetch(url);
+    const response = await scheduleTicketmasterFetch(url);
     const text = await response.text();
+    if (response.ok) {
+      setTicketmasterCacheEntry(cacheKey, { status: response.status, text });
+    }
     res
       .status(response.status)
       .type('application/json')
