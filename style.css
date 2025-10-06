@@ -2258,9 +2258,15 @@ h2 {
 
 .genre-filter {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.genre-filter-buttons {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
 }
 
 .genre-filter-btn {
@@ -2270,12 +2276,53 @@ h2 {
   padding: 4px 12px;
   cursor: pointer;
   font-size: 0.9rem;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .genre-filter-btn.active {
   background: #7aa68c;
   color: #fff;
   border-color: #7aa68c;
+}
+
+.genre-filter-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 1.2rem;
+}
+
+.genre-filter-active-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.genre-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2f6b43;
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+.genre-filter-chip-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.genre-filter-chip-remove:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .movie-tab,
