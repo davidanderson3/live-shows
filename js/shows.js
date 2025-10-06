@@ -823,16 +823,20 @@ export async function initShowsPanel() {
       }
       const eventsMap = new Map();
       let eventCounter = 0;
+      const apiBase =
+        API_BASE_URL && API_BASE_URL !== 'null'
+          ? API_BASE_URL.replace(/\/$/, '')
+          : '';
       for (const artist of artists) {
-        const tmUrl = new URL(`${API_BASE_URL}/api/ticketmaster`);
-        tmUrl.searchParams.set('keyword', artist.name);
+        const params = new URLSearchParams({ keyword: artist.name });
         if (requiresManualApiKey) {
-          tmUrl.searchParams.set('apiKey', manualApiKey);
+          params.set('apiKey', manualApiKey);
         }
+        const tmUrl = `${apiBase}/api/ticketmaster?${params.toString()}`;
         const cacheScope = requiresManualApiKey ? 'manual' : 'server';
         let data = getCachedTicketmasterResponse(artist.name, cacheScope);
         if (!data) {
-          const res = await fetch(tmUrl.toString());
+          const res = await fetch(tmUrl);
           if (!res.ok) {
             if (res.status === 429) {
               console.warn('Ticketmaster rate limit reached for', artist.name);
