@@ -54,6 +54,12 @@ const handlers = {
   handleChange: null
 };
 
+function clampUserRating(value) {
+  if (!Number.isFinite(value)) return null;
+  if (value < 0) return 0;
+  if (value > 10) return 10;
+  return Math.round(value * 2) / 2;
+}
 const REFILL_COOLDOWN_MS = 5000;
 
 function getNameList(input) {
@@ -461,6 +467,42 @@ function createRatingElement(movie) {
   return ratingEl;
 }
 
+function createUserRatingElement(pref) {
+  if (!pref || !pref.movie) return null;
+
+  const container = document.createElement('label');
+  container.className = 'movie-personal-rating';
+  container.textContent = 'Your Rating: ';
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.max = '10';
+  input.step = '0.5';
+  input.inputMode = 'decimal';
+  input.placeholder = '—';
+
+  if (pref.userRating != null && pref.userRating !== '') {
+    const rating = clampUserRating(Number(pref.userRating));
+    if (rating != null) {
+      input.value = rating.toString();
+    }
+  }
+
+  input.addEventListener('change', event => {
+    const value = Number.parseFloat(event.target.value);
+    if (Number.isNaN(value)) {
+      setUserRating(pref.movie.id, null);
+      return;
+    }
+    setUserRating(pref.movie.id, value);
+  });
+
+  container.appendChild(input);
+
+  return container;
+}
+
 function applyCreditsToMovie(movie, credits) {
   if (!movie || !credits) return;
   const cast = Array.isArray(credits.cast) ? credits.cast : [];
@@ -581,12 +623,14 @@ async function setStatus(movie, status, options = {}) {
   if (status === 'interested') {
     entry.interest = options.interest ?? entry.interest ?? DEFAULT_INTEREST;
     entry.movie = snapshot;
+    delete entry.userRating;
   } else if (status === 'watched') {
     entry.movie = snapshot;
     delete entry.interest;
   } else if (status === 'notInterested') {
     delete entry.movie;
     delete entry.interest;
+    delete entry.userRating;
   }
   next[id] = entry;
   await savePreferences(next);
@@ -595,6 +639,26 @@ async function setStatus(movie, status, options = {}) {
   if (!getFeedMovies(currentMovies).length) {
     requestAdditionalMovies();
   }
+}
+
+async function setUserRating(movieId, rating) {
+  await loadPreferences();
+  const id = String(movieId);
+  const pref = currentPrefs[id];
+  if (!pref || pref.status !== 'watched') return;
+
+  const next = { ...currentPrefs };
+  const entry = { ...pref };
+
+  if (rating == null) {
+    delete entry.userRating;
+  } else {
+    entry.userRating = clampUserRating(rating);
+  }
+  entry.updatedAt = Date.now();
+  next[id] = entry;
+  await savePreferences(next);
+  refreshUI();
 }
 
 async function clearStatus(movieId) {
@@ -877,9 +941,17 @@ function renderWatchedList() {
   const sorted = entries.slice();
 
   const byUpdatedAt = (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  const getEffectiveRating = pref => {
+    if (pref.userRating != null) {
+      const rating = clampUserRating(Number(pref.userRating));
+      if (rating != null) return rating;
+    }
+    return getVoteAverageValue(pref.movie);
+  };
+
   const byRatingDesc = (a, b) => {
-    const aRating = getVoteAverageValue(a.movie);
-    const bRating = getVoteAverageValue(b.movie);
+    const aRating = getEffectiveRating(a);
+    const bRating = getEffectiveRating(b);
     if (aRating == null && bRating == null) return byUpdatedAt(a, b);
     if (aRating == null) return 1;
     if (bRating == null) return -1;
@@ -893,8 +965,8 @@ function renderWatchedList() {
     return byUpdatedAt(a, b);
   };
   const byRatingAsc = (a, b) => {
-    const aRating = getVoteAverageValue(a.movie);
-    const bRating = getVoteAverageValue(b.movie);
+    const aRating = getEffectiveRating(a);
+    const bRating = getEffectiveRating(b);
     if (aRating == null && bRating == null) return byUpdatedAt(a, b);
     if (aRating == null) return 1;
     if (bRating == null) return -1;
@@ -949,6 +1021,11 @@ function renderWatchedList() {
     const ratingEl = createRatingElement(movie);
     if (ratingEl) {
       info.appendChild(ratingEl);
+    }
+
+    const personalRatingEl = createUserRatingElement(pref);
+    if (personalRatingEl) {
+      info.appendChild(personalRatingEl);
     }
 
     if (movie.overview) {
