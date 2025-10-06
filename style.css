@@ -2256,6 +2256,28 @@ h2 {
   margin-bottom: 8px;
 }
 
+.genre-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.genre-filter-btn {
+  border: 1px solid #ccc;
+  background: #f2f2f2;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.genre-filter-btn.active {
+  background: #7aa68c;
+  color: #fff;
+  border-color: #7aa68c;
+}
+
 .movie-tab,
 .shows-tab {
   flex: 1 1 0;

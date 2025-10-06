@@ -27,6 +27,7 @@ function buildDom() {
     </div>
     <div id="movieStreamSection"></div>
     <div id="savedMoviesSection" style="display:none">
+      <div id="savedMoviesFilters" class="genre-filter"></div>
       <div id="savedMoviesList"></div>
     </div>
     <div id="watchedMoviesSection" style="display:none">
@@ -295,6 +296,95 @@ describe('initMoviesPanel', () => {
     const meta = document.querySelector('#savedMoviesList .movie-meta')?.textContent || '';
     expect(meta).toContain('Genres: Drama');
     expect(meta).toContain('Director: Indie Director');
+  });
+
+  it('filters saved movies by genre tags', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const userId = 'genre-user';
+    authModuleMock.getCurrentUser.mockReturnValue({ uid: userId });
+    authModuleMock.awaitAuthUser.mockResolvedValue({ uid: userId });
+
+    firestoreDocMock.get.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        prefs: {
+          '1': {
+            status: 'interested',
+            interest: 4,
+            updatedAt: 2,
+            movie: {
+              id: 1,
+              title: 'Drama Pick',
+              release_date: '2023-01-01',
+              poster_path: '',
+              overview: '',
+              genre_ids: [101]
+            }
+          },
+          '2': {
+            status: 'interested',
+            interest: 3,
+            updatedAt: 1,
+            movie: {
+              id: 2,
+              title: 'Comedy Night',
+              release_date: '2023-02-02',
+              poster_path: '',
+              overview: '',
+              genre_ids: [102]
+            }
+          }
+        }
+      })
+    });
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ results: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            genres: [
+              { id: 101, name: 'Drama' },
+              { id: 102, name: 'Comedy' }
+            ]
+          })
+      });
+
+    await initMoviesPanel();
+
+    const filterButtons = Array.from(document.querySelectorAll('#savedMoviesFilters button')).map(btn =>
+      btn.textContent
+    );
+    expect(filterButtons).toEqual(['All', 'Comedy', 'Drama']);
+
+    const listTitles = () =>
+      Array.from(document.querySelectorAll('#savedMoviesList h3')).map(h => h.textContent);
+
+    expect(listTitles()).toHaveLength(2);
+
+    const comedyButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === 'Comedy'
+    );
+    comedyButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const comedyTitles = listTitles();
+    expect(comedyTitles).toHaveLength(1);
+    expect(comedyTitles[0]).toContain('Comedy Night');
+
+    const allButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === ''
+    );
+    allButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    expect(listTitles()).toHaveLength(2);
   });
 
   it('routes movie requests through the Cloud Function proxy', async () => {
