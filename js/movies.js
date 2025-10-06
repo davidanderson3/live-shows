@@ -271,6 +271,19 @@ function appendMeta(list, label, value) {
   list.appendChild(item);
 }
 
+function getGenreNames(movie) {
+  if (!movie) return [];
+  const ids = Array.isArray(movie.genre_ids) ? movie.genre_ids : [];
+  return ids.map(id => genreMap[id]).filter(Boolean);
+}
+
+function appendGenresMeta(list, movie) {
+  const genres = getGenreNames(movie);
+  if (genres.length) {
+    appendMeta(list, 'Genres', genres.join(', '));
+  }
+}
+
 function appendPeopleMeta(list, label, names) {
   const values = getNameList(names);
   if (!values.length) return;
@@ -444,12 +457,7 @@ function renderFeed() {
     const metaList = document.createElement('ul');
     metaList.className = 'movie-meta';
 
-    const genres = (movie.genre_ids || [])
-      .map(id => genreMap[id])
-      .filter(Boolean);
-    if (genres.length) {
-      appendMeta(metaList, 'Genres', genres.join(', '));
-    }
+    appendGenresMeta(metaList, movie);
     appendMeta(metaList, 'Average Score', movie.vote_average ?? 'N/A');
     appendMeta(metaList, 'Votes', movie.vote_count ?? 'N/A');
     appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
@@ -543,6 +551,7 @@ function renderInterestedList() {
 
     const metaList = document.createElement('ul');
     metaList.className = 'movie-meta';
+    appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
     if (metaList.childNodes.length) {
@@ -604,6 +613,7 @@ function renderWatchedList() {
 
     const metaList = document.createElement('ul');
     metaList.className = 'movie-meta';
+    appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
     if (metaList.childNodes.length) {

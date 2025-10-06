@@ -254,7 +254,7 @@ describe('initMoviesPanel', () => {
           vote_average: 8.2,
           vote_count: 84,
           overview: 'Must-watch film.',
-          genre_ids: [],
+          genre_ids: [18],
           poster_path: '/future.jpg'
         }
       ]
@@ -264,7 +264,7 @@ describe('initMoviesPanel', () => {
       cast: [{ name: 'Breakout Star' }],
       crew: [{ job: 'Director', name: 'Indie Director' }]
     };
-    const genres = { genres: [] };
+    const genres = { genres: [{ id: 18, name: 'Drama' }] };
 
     configureFetchResponses([page, empty, credits, genres]);
 
@@ -293,6 +293,7 @@ describe('initMoviesPanel', () => {
     const stored = JSON.parse(global.localStorage.getItem('moviePreferences'));
     expect(stored['2'].interest).toBe(5);
     const meta = document.querySelector('#savedMoviesList .movie-meta')?.textContent || '';
+    expect(meta).toContain('Genres: Drama');
     expect(meta).toContain('Director: Indie Director');
   });
 
@@ -348,7 +349,7 @@ describe('initMoviesPanel', () => {
           vote_average: 9.1,
           vote_count: 900,
           overview: 'A timeless classic.',
-          genre_ids: []
+          genre_ids: [12]
         }
       ]
     };
@@ -357,7 +358,7 @@ describe('initMoviesPanel', () => {
       cast: [{ name: 'Iconic Star' }],
       crew: [{ job: 'Director', name: 'Famed Director' }]
     };
-    const genres = { genres: [] };
+    const genres = { genres: [{ id: 12, name: 'Adventure' }] };
 
     configureFetchResponses([page, empty, credits, genres]);
 
@@ -370,7 +371,9 @@ describe('initMoviesPanel', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.querySelector('#watchedMoviesList').textContent).toContain('Classic Film');
-
+    const watchedMeta = document.querySelector('#watchedMoviesList .movie-meta')?.textContent || '';
+    expect(watchedMeta).toContain('Genres: Adventure');
+    
     const removeBtn = document.querySelector('#watchedMoviesList button');
     removeBtn?.click();
     await new Promise(resolve => setTimeout(resolve, 0));
