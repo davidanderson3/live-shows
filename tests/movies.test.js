@@ -304,6 +304,7 @@ describe('initMoviesPanel', () => {
     const meta = document.querySelector('#savedMoviesList .movie-meta')?.textContent || '';
     expect(meta).toContain('Genres: Drama');
     expect(meta).toContain('Director: Indie Director');
+    expect(meta).toContain('Cast: Breakout Star');
   });
 
   it('filters saved movies by genre tags', async () => {
@@ -524,6 +525,9 @@ describe('initMoviesPanel', () => {
     expect(ratingText).toContain('900 votes');
     const watchedMeta = document.querySelector('#watchedMoviesList .movie-meta')?.textContent || '';
     expect(watchedMeta).toContain('Genres: Adventure');
+    expect(watchedMeta).toContain('Director: Famed Director');
+    expect(watchedMeta).toContain('Cast: Iconic Star');
+    
     expect(watchedMeta).toContain('Average Score: 9.1');
     expect(watchedMeta).toContain('Release Date: 1999-07-16');
 

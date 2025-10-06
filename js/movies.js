@@ -167,6 +167,14 @@ function persistApiKey(key) {
   }
 }
 
+function resolveApiKey() {
+  if (activeApiKey) {
+    return activeApiKey;
+  }
+  const value = domRefs.apiKeyInput?.value;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function getTmdbProxyEndpoint() {
   if (proxyDisabled) return '';
   if (typeof window !== 'undefined' && window.tmdbProxyEndpoint) {
@@ -483,6 +491,18 @@ async function enrichMoviesWithCredits(movies, options) {
 
 async function setStatus(movie, status, options = {}) {
   if (!movie || movie.id == null) return;
+  const usingProxy = Boolean(getTmdbProxyEndpoint());
+  const apiKey = resolveApiKey();
+  if (!getNameList(movie.directors).length || !getNameList(movie.topCast).length) {
+    if (usingProxy || apiKey) {
+      try {
+        const credits = await fetchCreditsForMovie(movie.id, { usingProxy, apiKey });
+        applyCreditsToMovie(movie, credits);
+      } catch (err) {
+        console.warn('Failed to enrich movie credits before saving status', movie.id, err);
+      }
+    }
+  }
   await loadPreferences();
   const id = String(movie.id);
   const next = { ...currentPrefs };
