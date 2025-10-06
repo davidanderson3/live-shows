@@ -2428,6 +2428,10 @@ h2 {
   font-size: 0.85rem;
 }
 
+.movie-card .button-row button {
+  padding: 4px 12px;
+}
+
 #movieList ul {
   list-style: none;
   padding: 0;
