@@ -613,7 +613,7 @@ function selectPriorityCandidates(movies) {
     if (filtered.length >= MIN_PRIORITY_RESULTS) {
       return filtered;
     }
-    if (filtered.length > bestFallback.length) {
+    if (filtered.length && bestFallback.length === 0) {
       bestFallback = filtered;
     }
   }
