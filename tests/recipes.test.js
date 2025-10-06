@@ -98,6 +98,36 @@ describe('initRecipesPanel', () => {
     expect(tagChip.textContent).toBe('American');
   });
 
+  it('allows expanding long summaries', async () => {
+    const mockResponse = {
+      results: [
+        {
+          title: 'Verbose',
+          summary: 'Long description '.repeat(30)
+        }
+      ]
+    };
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(mockResponse)
+    }));
+
+    await initRecipesPanel();
+    document.getElementById('recipesQuery').value = 'verbose';
+    document.getElementById('recipesSearchBtn').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const toggle = document.querySelector('.recipe-card__summary-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    toggle.click();
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const summary = document.querySelector('.recipe-card__summary');
+    expect(summary.classList.contains('recipe-card__summary--expanded')).toBe(true);
+  });
+
   it('limits displayed recipes to 10', async () => {
     const mockResponse = {
       results: Array.from({ length: 12 }, (_, i) => ({

@@ -262,10 +262,33 @@ export async function initRecipesPanel() {
         }
 
         if (recipe.summary) {
+          const summaryWrap = document.createElement('div');
+          summaryWrap.className = 'recipe-card__summary-wrap';
+
           const summary = document.createElement('p');
           summary.className = 'recipe-card__summary';
           summary.textContent = recipe.summary;
-          card.appendChild(summary);
+          summaryWrap.appendChild(summary);
+
+          if (recipe.summary.length > 240) {
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'recipe-card__summary-toggle';
+            toggle.textContent = 'Show more';
+            toggle.setAttribute('aria-expanded', 'false');
+
+            toggle.addEventListener('click', () => {
+              const expanded = toggle.getAttribute('aria-expanded') === 'true';
+              const nextExpanded = !expanded;
+              toggle.setAttribute('aria-expanded', String(nextExpanded));
+              summary.classList.toggle('recipe-card__summary--expanded', nextExpanded);
+              toggle.textContent = nextExpanded ? 'Show less' : 'Show more';
+            });
+
+            summaryWrap.appendChild(toggle);
+          }
+
+          card.appendChild(summaryWrap);
         }
 
         if (recipe.badges.length) {

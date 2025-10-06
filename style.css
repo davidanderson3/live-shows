@@ -2924,10 +2924,40 @@ h2 {
   display: block;
 }
 
+.recipe-card__summary-wrap {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .recipe-card__summary {
   margin: 0;
   color: #544c3a;
   line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.recipe-card__summary--expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.recipe-card__summary-toggle {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #256029;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recipe-card__summary-toggle:hover,
+.recipe-card__summary-toggle:focus-visible {
+  text-decoration: underline;
 }
 
 .recipe-card__badges {
