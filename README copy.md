@@ -43,6 +43,8 @@ npm install
 npm test
 ```
 
-### Spoonacular proxy
+### Recipes API
 
-The backend exposes a `/api/spoonacular` route that forwards recipe searches to the Spoonacular API without revealing your key. Define a `SPOONACULAR_KEY` environment variable before running the server when deploying (e.g., on Render).
+The app first tries to query the hosted Spoonacular proxy at `/api/spoonacular` (or `/spoonacularProxy` when using the Cloud Functions deployment). If the proxy cannot be reached, you can supply an [API Ninjas Recipe API](https://api-ninjas.com/api/recipe) key in the Recipes tab and the app will call their endpoint directly. The key is stored only in your browser's local storage so you do not need to re-enter it on every visit.
+
+To run the proxy locally, create a `.env` file with `SPOONACULAR_KEY=your_api_key_here` and restart the server with `npm start`.

@@ -22,6 +22,7 @@ const unsupportedProxyEndpoints = new Set();
 const domRefs = {
   list: null,
   interestedList: null,
+  interestedFilters: null,
   watchedList: null,
   apiKeyInput: null,
   apiKeyContainer: null,
@@ -40,6 +41,7 @@ let prefsLoadedFor = null;
 let loadingPrefsPromise = null;
 let activeUserId = null;
 let watchedSortMode = 'recent';
+let activeInterestedGenre = null;
 const handlers = {
   handleKeydown: null,
   handleChange: null
@@ -240,7 +242,10 @@ async function callTmdbProxy(endpoint, params = {}) {
             }
             return false;
           }
-          return code === 'invalid_endpoint_params';
+          if (code === 'invalid_endpoint_params') {
+            return false;
+          }
+          return false;
         } catch (_) {
           return false;
         }
@@ -301,6 +306,50 @@ function appendGenresMeta(list, movie) {
   if (genres.length) {
     appendMeta(list, 'Genres', genres.join(', '));
   }
+}
+
+function updateInterestedGenreFilter(next) {
+  if (activeInterestedGenre === next) return;
+  activeInterestedGenre = next;
+  renderInterestedList();
+}
+
+function renderInterestedFilters(genres) {
+  const container = domRefs.interestedFilters;
+  if (!container) return;
+
+  if (!genres.length) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    activeInterestedGenre = null;
+    return;
+  }
+
+  container.style.display = '';
+  container.innerHTML = '';
+
+  const sorted = [...new Set(genres)].sort((a, b) => a.localeCompare(b));
+
+  const createButton = (label, value) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'genre-filter-btn';
+    if (value === activeInterestedGenre || (!value && activeInterestedGenre == null)) {
+      btn.classList.add('active');
+    }
+    btn.textContent = label;
+    btn.dataset.genre = value ?? '';
+    btn.addEventListener('click', () => {
+      const next = value && activeInterestedGenre === value ? null : value;
+      updateInterestedGenreFilter(next ?? null);
+    });
+    return btn;
+  };
+
+  container.appendChild(createButton('All', null));
+  sorted.forEach(name => {
+    container.appendChild(createButton(name, name));
+  });
 }
 
 function appendPeopleMeta(list, label, names) {
@@ -374,17 +423,36 @@ async function fetchCreditsDirect(movieId, apiKey) {
   }
 }
 
+async function fetchCreditsFromProxy(movieId) {
+  try {
+    return await callTmdbProxy('credits', { movie_id: movieId });
+  } catch (err) {
+    if (!err || err.code !== 'invalid_endpoint_params') {
+      throw err;
+    }
+
+    try {
+      return await callTmdbProxy('credits', { movieId });
+    } catch (legacyErr) {
+      if (legacyErr && legacyErr.code === 'invalid_endpoint_params') {
+        unsupportedProxyEndpoints.add('credits');
+      }
+      throw legacyErr;
+    }
+  }
+}
+
 async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
   if (!movieId) return null;
   if (usingProxy && isProxyEndpointSupported('credits')) {
     try {
-      const credits = await callTmdbProxy('credits', { movie_id: movieId });
+      const credits = await fetchCreditsFromProxy(movieId);
       if (credits) {
         return credits;
       }
     } catch (err) {
       console.warn('TMDB proxy credits request failed, attempting direct fallback', err);
-      if (!err || err.code !== 'unsupported_endpoint') {
+      if (!err || (err.code !== 'unsupported_endpoint' && err.code !== 'invalid_endpoint_params')) {
         disableTmdbProxy();
       }
       const direct = await fetchCreditsDirect(movieId, apiKey);
@@ -534,12 +602,35 @@ function renderInterestedList() {
   const listEl = domRefs.interestedList;
   if (!listEl) return;
 
-  const entries = Object.values(currentPrefs)
+  const allEntries = Object.values(currentPrefs)
     .filter(pref => pref.status === 'interested' && pref.movie)
     .sort((a, b) => (b.interest ?? 0) - (a.interest ?? 0) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
-  if (!entries.length) {
+  const genres = [];
+  allEntries.forEach(pref => {
+    const names = getGenreNames(pref.movie);
+    if (names.length) {
+      genres.push(...names);
+    }
+  });
+
+  if (activeInterestedGenre && !genres.includes(activeInterestedGenre)) {
+    activeInterestedGenre = null;
+  }
+
+  renderInterestedFilters(genres);
+
+  if (!allEntries.length) {
     listEl.innerHTML = '<em>No interested movies yet.</em>';
+    return;
+  }
+
+  const entries = activeInterestedGenre
+    ? allEntries.filter(pref => getGenreNames(pref.movie).includes(activeInterestedGenre))
+    : allEntries;
+
+  if (!entries.length) {
+    listEl.innerHTML = '<em>No interested movies for the selected genre.</em>';
     return;
   }
 
@@ -980,6 +1071,7 @@ export async function initMoviesPanel() {
   if (!domRefs.list) return;
 
   domRefs.interestedList = document.getElementById('savedMoviesList');
+  domRefs.interestedFilters = document.getElementById('savedMoviesFilters');
   domRefs.watchedList = document.getElementById('watchedMoviesList');
   domRefs.apiKeyInput = document.getElementById('moviesApiKey');
   domRefs.apiKeyContainer = document.getElementById('moviesApiKeyContainer');

@@ -549,16 +549,49 @@ function updateMap(items = []) {
   }
 }
 
+function computeRatingScore(rest) {
+  if (!rest) return -Infinity;
+
+  const rawRating =
+    typeof rest.rating === 'number'
+      ? rest.rating
+      : typeof rest.rating === 'string'
+        ? Number(rest.rating)
+        : NaN;
+  const rating = Number.isFinite(rawRating) ? rawRating : -Infinity;
+  if (!Number.isFinite(rating)) return -Infinity;
+
+  const rawReviews =
+    typeof rest.reviewCount === 'number'
+      ? rest.reviewCount
+      : typeof rest.reviewCount === 'string'
+        ? Number(rest.reviewCount)
+        : 0;
+  const reviewCount = Number.isFinite(rawReviews) && rawReviews > 0 ? rawReviews : 0;
+
+  if (!reviewCount) {
+    return rating;
+  }
+
+  const reviewBoost = Math.min(0.3, Math.log10(reviewCount + 1) * 0.1);
+  return rating + reviewBoost;
+}
+
 function sortByRating(items) {
   return [...items].sort((a, b) => {
-    const ratingA = typeof a.rating === 'number' ? a.rating : -Infinity;
-    const ratingB = typeof b.rating === 'number' ? b.rating : -Infinity;
-    if (ratingA === ratingB) {
-      const reviewsA = typeof a.reviewCount === 'number' ? a.reviewCount : -Infinity;
-      const reviewsB = typeof b.reviewCount === 'number' ? b.reviewCount : -Infinity;
-      return reviewsB - reviewsA;
+    const scoreA = computeRatingScore(a);
+    const scoreB = computeRatingScore(b);
+    if (scoreA === scoreB) {
+      const ratingA = typeof a.rating === 'number' ? a.rating : -Infinity;
+      const ratingB = typeof b.rating === 'number' ? b.rating : -Infinity;
+      if (ratingA === ratingB) {
+        const reviewsA = typeof a.reviewCount === 'number' ? a.reviewCount : -Infinity;
+        const reviewsB = typeof b.reviewCount === 'number' ? b.reviewCount : -Infinity;
+        return reviewsB - reviewsA;
+      }
+      return ratingB - ratingA;
     }
-    return ratingB - ratingA;
+    return scoreB - scoreA;
   });
 }
 

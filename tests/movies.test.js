@@ -27,6 +27,7 @@ function buildDom() {
     </div>
     <div id="movieStreamSection"></div>
     <div id="savedMoviesSection" style="display:none">
+      <div id="savedMoviesFilters" class="genre-filter"></div>
       <div id="savedMoviesList"></div>
     </div>
     <div id="watchedMoviesSection" style="display:none">
@@ -305,6 +306,95 @@ describe('initMoviesPanel', () => {
     expect(meta).toContain('Director: Indie Director');
   });
 
+  it('filters saved movies by genre tags', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const userId = 'genre-user';
+    authModuleMock.getCurrentUser.mockReturnValue({ uid: userId });
+    authModuleMock.awaitAuthUser.mockResolvedValue({ uid: userId });
+
+    firestoreDocMock.get.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        prefs: {
+          '1': {
+            status: 'interested',
+            interest: 4,
+            updatedAt: 2,
+            movie: {
+              id: 1,
+              title: 'Drama Pick',
+              release_date: '2023-01-01',
+              poster_path: '',
+              overview: '',
+              genre_ids: [101]
+            }
+          },
+          '2': {
+            status: 'interested',
+            interest: 3,
+            updatedAt: 1,
+            movie: {
+              id: 2,
+              title: 'Comedy Night',
+              release_date: '2023-02-02',
+              poster_path: '',
+              overview: '',
+              genre_ids: [102]
+            }
+          }
+        }
+      })
+    });
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ results: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            genres: [
+              { id: 101, name: 'Drama' },
+              { id: 102, name: 'Comedy' }
+            ]
+          })
+      });
+
+    await initMoviesPanel();
+
+    const filterButtons = Array.from(document.querySelectorAll('#savedMoviesFilters button')).map(btn =>
+      btn.textContent
+    );
+    expect(filterButtons).toEqual(['All', 'Comedy', 'Drama']);
+
+    const listTitles = () =>
+      Array.from(document.querySelectorAll('#savedMoviesList h3')).map(h => h.textContent);
+
+    expect(listTitles()).toHaveLength(2);
+
+    const comedyButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === 'Comedy'
+    );
+    comedyButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const comedyTitles = listTitles();
+    expect(comedyTitles).toHaveLength(1);
+    expect(comedyTitles[0]).toContain('Comedy Night');
+
+    const allButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === ''
+    );
+    allButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    expect(listTitles()).toHaveLength(2);
+  });
+
   it('routes movie requests through the Cloud Function proxy', async () => {
     const dom = buildDom();
     attachWindow(dom);
@@ -341,6 +431,56 @@ describe('initMoviesPanel', () => {
     expect(calledUrls.some(url => String(url).includes('endpoint=credits'))).toBe(true);
     expect(calledUrls.some(url => String(url).includes('api_key='))).toBe(false);
     expect(global.localStorage.getItem('moviesApiKey')).toBeNull();
+  });
+
+  it('retries credits proxy requests with legacy parameter names when needed', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbProxyEndpoint = 'https://mock-functions.net/tmdbProxy';
+
+    const page = {
+      results: [
+        {
+          id: 42,
+          title: 'Legacy Param Movie',
+          release_date: '2024-06-01',
+          vote_average: 7.8,
+          vote_count: 120,
+          overview: 'Testing legacy proxy parameters.',
+          genre_ids: []
+        }
+      ]
+    };
+    const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Proxy Legacy Star' }],
+      crew: [{ job: 'Director', name: 'Legacy Director' }]
+    };
+    const genres = { genres: [] };
+
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(empty) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify({ error: 'invalid_endpoint_params' }))
+      })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(credits) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(genres) });
+
+    await initMoviesPanel();
+
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+    const firstCreditsUrl = String(global.fetch.mock.calls[2][0]);
+    const retryCreditsUrl = String(global.fetch.mock.calls[3][0]);
+    expect(firstCreditsUrl).toContain('endpoint=credits');
+    expect(firstCreditsUrl).toContain('movie_id=');
+    expect(retryCreditsUrl).toContain('endpoint=credits');
+    expect(retryCreditsUrl).toContain('movieId=');
+
+    const listContent = document.getElementById('movieList')?.textContent || '';
+    expect(listContent).toContain('Proxy Legacy Star');
   });
 
   it('moves watched movies to the watched list and allows removal', async () => {

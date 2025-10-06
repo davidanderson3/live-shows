@@ -15,8 +15,16 @@ describe('initRecipesPanel', () => {
     global.document = dom.window.document;
     global.window = dom.window;
     global.localStorage = {
-      getItem: () => '',
-      setItem: () => {}
+      store: {},
+      getItem(key) {
+        return this.store[key] || '';
+      },
+      setItem(key, val) {
+        this.store[key] = String(val);
+      },
+      removeItem(key) {
+        delete this.store[key];
+      }
     };
   });
 
@@ -178,7 +186,8 @@ describe('initRecipesPanel', () => {
     const store = {};
     global.localStorage = {
       getItem: (key) => store[key] || '',
-      setItem: (key, val) => { store[key] = val; }
+      setItem: (key, val) => { store[key] = val; },
+      removeItem: (key) => { delete store[key]; }
     };
     const mockResponse = {
       results: [
@@ -214,7 +223,8 @@ describe('initRecipesPanel', () => {
     const store = {};
     global.localStorage = {
       getItem: (key) => store[key] || '',
-      setItem: (key, val) => { store[key] = val; }
+      setItem: (key, val) => { store[key] = val; },
+      removeItem: (key) => { delete store[key]; }
     };
     const mockResponse = {
       results: [
@@ -237,9 +247,53 @@ describe('initRecipesPanel', () => {
     expect(saved[0].title).toBe('Toast');
   });
 
-  it('hides API key input by default', async () => {
+  it('falls back to API Ninjas when the proxy fails', async () => {
+    let call = 0;
+    global.fetch = vi.fn(() => {
+      if (call === 0) {
+        call += 1;
+        return Promise.reject(new Error('network fail'));
+      }
+      call += 1;
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            {
+              title: 'Fallback Recipe',
+              ingredients: 'eggs, salt',
+              instructions: 'Beat eggs. Cook eggs.'
+            }
+          ])
+      });
+    });
+
+    await initRecipesPanel();
+    document.getElementById('recipesQuery').value = 'eggs';
+    const apiKeyInput = document.getElementById('recipesApiKey');
+    apiKeyInput.value = 'secret-key';
+    document.getElementById('recipesSearchBtn').click();
+
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const title = document.querySelector('.recipe-card__title').textContent;
+    expect(title).toBe('Fallback Recipe');
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/spoonacularProxy?query=eggs'
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://api.api-ninjas.com/v1/recipe?query=eggs',
+      { headers: { 'X-Api-Key': 'secret-key' } }
+    );
+    expect(global.localStorage.store.recipesApiKey).toBe('secret-key');
+  });
+
+  it('shows API key input by default', async () => {
     await initRecipesPanel();
     const container = document.getElementById('recipesApiKeyContainer');
-    expect(container.style.display).toBe('none');
+    expect(container.style.display).not.toBe('none');
   });
 });
