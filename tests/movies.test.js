@@ -33,7 +33,7 @@ function buildDom() {
       <div id="watchedMoviesList"></div>
     </div>
     <div id="movieList"></div>
-    <div id="moviesApiKeyContainer"><input id="moviesApiKey" /></div>
+    <div id="moviesApiKeyContainer"><input id="moviesApiKey" type="password" /></div>
   `);
 }
 
