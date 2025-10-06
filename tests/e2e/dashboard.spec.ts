@@ -27,7 +27,6 @@ async function stubExternal(page) {
   });
 
   await page.addInitScript(() => {
-    (window as any).__FIREBASE_CONFIG__ = {};
     // Minimal firebase stub used by auth.js/helpers.js
     (window as any).firebase = {
       initializeApp() {},
