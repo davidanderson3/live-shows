@@ -63,9 +63,18 @@
             <div id="movieList" class="decision-container"></div>
           </div>
           <div id="savedMoviesSection" style="display:none;">
+            <div id="savedMoviesFilters" class="genre-filter"></div>
             <div id="savedMoviesList" class="decision-container"></div>
           </div>
           <div id="watchedMoviesSection" style="display:none;">
+            <div id="watchedMoviesControls" class="movie-controls">
+              <label for="watchedMoviesSort">Sort by:</label>
+              <select id="watchedMoviesSort">
+                <option value="recent">Recently Updated</option>
+                <option value="ratingDesc">Rating: High to Low</option>
+                <option value="ratingAsc">Rating: Low to High</option>
+              </select>
+            </div>
             <div id="watchedMoviesList" class="decision-container"></div>
           </div>
           <footer id="tmdbNotice" class="tmdb-notice">

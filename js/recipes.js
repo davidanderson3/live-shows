@@ -3,6 +3,32 @@ const API_BASE_URL =
   (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
   (typeof window !== 'undefined' && window.location?.origin) ||
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
+const API_NINJAS_ENDPOINT = 'https://api.api-ninjas.com/v1/recipe';
+
+const getStoredApiKey = () => {
+  try {
+    return localStorage.getItem('recipesApiKey') || '';
+  } catch (err) {
+    console.error('Failed to read API key from storage', err);
+    return '';
+  }
+};
+
+const storeApiKey = key => {
+  try {
+    if (key) {
+      localStorage.setItem('recipesApiKey', key);
+    } else {
+      if (typeof localStorage.removeItem === 'function') {
+        localStorage.removeItem('recipesApiKey');
+      } else {
+        localStorage.setItem('recipesApiKey', '');
+      }
+    }
+  } catch (err) {
+    console.error('Failed to store API key', err);
+  }
+};
 
 const stripHtml = text =>
   typeof text === 'string'
@@ -51,9 +77,71 @@ const buildFactEntries = r => {
     ['Score', r.spoonacularScore ?? null],
     ['Health score', r.healthScore ?? null],
     ['Likes', r.aggregateLikes ?? null],
-    ['Price / serving', r.pricePerServing ? formatPrice(r.pricePerServing) : null]
+    ['Price / serving', r.pricePerServing ? formatPrice(r.pricePerServing) : null],
+    ['Time', r.time ?? null],
+    ['Difficulty', r.difficulty ?? null]
   ];
   return facts.filter(([, value]) => value !== null && value !== undefined && value !== '');
+};
+
+const toInstructionSteps = r => {
+  if (Array.isArray(r.analyzedInstructions)) {
+    return r.analyzedInstructions
+      .flatMap(instruction => instruction?.steps || [])
+      .map(step => step?.step?.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(r.instructions)) {
+    return r.instructions.map(step => stripHtml(step)).filter(Boolean);
+  }
+  if (typeof r.instructions === 'string') {
+    const trimmed = stripHtml(r.instructions);
+    if (!trimmed) return [];
+    const newlineSplit = trimmed.split(/\r?\n+/).map(text => text.trim()).filter(Boolean);
+    if (newlineSplit.length > 1) return newlineSplit;
+    const sentenceSplit = trimmed
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+      .map(text => text.trim())
+      .filter(Boolean);
+    return sentenceSplit.length ? sentenceSplit : [trimmed];
+  }
+  return [];
+};
+
+const toIngredientList = r => {
+  if (Array.isArray(r.extendedIngredients)) {
+    return r.extendedIngredients
+      .map(ing => ing?.original || ing?.name || '')
+      .map(text => stripHtml(text))
+      .filter(Boolean);
+  }
+  if (Array.isArray(r.ingredients)) {
+    return r.ingredients.map(text => stripHtml(text)).filter(Boolean);
+  }
+  if (typeof r.ingredients === 'string') {
+    const trimmed = stripHtml(r.ingredients);
+    if (!trimmed) return [];
+    const newlineSplit = trimmed.split(/\r?\n+/).map(text => text.trim()).filter(Boolean);
+    if (newlineSplit.length > 1) return newlineSplit;
+    return trimmed
+      .split(/,|•|\u2022/)
+      .map(text => text.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normalizeResults = payload => {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.results)) return payload.results;
+  return [];
+};
+
+const createError = (message, code) => {
+  const err = new Error(message);
+  err.code = code;
+  return err;
 };
 
 const buildTagGroups = r => {
@@ -89,12 +177,21 @@ export async function initRecipesPanel() {
   if (!listEl) return;
   const queryInput = document.getElementById('recipesQuery');
   const apiKeyContainer = document.getElementById('recipesApiKeyContainer');
+  const apiKeyInput = document.getElementById('recipesApiKey');
   const searchBtn = document.getElementById('recipesSearchBtn');
 
   const savedQuery = localStorage.getItem('recipesQuery') || '';
   if (queryInput) queryInput.value = savedQuery;
-  // hide API key input when using proxy
-  if (apiKeyContainer) apiKeyContainer.style.display = 'none';
+  const savedApiKey = getStoredApiKey();
+  if (apiKeyInput && savedApiKey) {
+    apiKeyInput.value = savedApiKey;
+  }
+  if (apiKeyInput) {
+    apiKeyInput.addEventListener('change', () => {
+      const key = apiKeyInput.value.trim();
+      storeApiKey(key);
+    });
+  }
 
   const loadRecipes = async () => {
     const query = queryInput?.value.trim();
@@ -117,63 +214,85 @@ export async function initRecipesPanel() {
           proxyPath = '/spoonacularProxy';
         }
       }
-      const res = await fetch(
-        `${base}${proxyPath}?query=${encodeURIComponent(query)}`
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const sortedResults = Array.isArray(data?.results)
-        ? [...data.results].sort((a, b) => {
-            const scoreA = typeof a?.spoonacularScore === 'number' ? a.spoonacularScore : 0;
-            const scoreB = typeof b?.spoonacularScore === 'number' ? b.spoonacularScore : 0;
-            return scoreB - scoreA;
-          })
-        : [];
-      const recipes = sortedResults.map(r => {
-            const instructions = Array.isArray(r.analyzedInstructions)
-              ? r.analyzedInstructions
-                  .flatMap(instruction => instruction?.steps || [])
-                  .map(step => step?.step?.trim())
-                  .filter(Boolean)
-              : [];
-            const ingredients = Array.isArray(r.extendedIngredients)
-              ? r.extendedIngredients
-                  .map(ing => ing?.original || ing?.name || '')
-                  .map(text => stripHtml(text))
-                  .filter(Boolean)
-              : [];
-            const summary = stripHtml(r.summary);
-            const facts = buildFactEntries(r);
-            const tagGroups = buildTagGroups(r);
-            const badges = buildBadges(r);
-            const winePairing = {
-              wines: Array.isArray(r.winePairing?.pairedWines)
-                ? r.winePairing.pairedWines.filter(Boolean)
-                : [],
-              text: stripHtml(r.winePairing?.pairingText)
-            };
-            const storage = {
-              id: r.id ?? null,
-              title: r.title || 'Untitled',
-              sourceUrl: r.sourceUrl || ''
-            };
-            const storageKey = toUniqueKey(storage);
-            return {
-              storage,
-              storageKey,
-              title: r.title || 'Untitled',
-              image: r.image || '',
-              summary,
-              ingredients,
-              instructions,
-              facts,
-              tagGroups,
-              badges,
-              sourceName: r.sourceName || '',
-              sourceUrl: r.sourceUrl || '',
-              winePairing
-            };
-          });
+      const proxyUrl = `${base}${proxyPath}?query=${encodeURIComponent(query)}`;
+      const tryProxyFetch = async () => {
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw createError(`HTTP ${res.status}`, 'proxy_http_error');
+        return res.json();
+      };
+      const tryApiNinjasFetch = async () => {
+        const key = (apiKeyInput?.value || '').trim() || getStoredApiKey();
+        if (!key) {
+          throw createError('Missing API key', 'missing_api_key');
+        }
+        storeApiKey(key);
+        const ninjasUrl = `${API_NINJAS_ENDPOINT}?query=${encodeURIComponent(query)}`;
+        const res = await fetch(ninjasUrl, {
+          headers: {
+            'X-Api-Key': key
+          }
+        });
+        if (!res.ok) {
+          throw createError(`HTTP ${res.status}`, 'api_ninjas_http_error');
+        }
+        return res.json();
+      };
+
+      let payload;
+      let usedFallback = false;
+      try {
+        payload = await tryProxyFetch();
+      } catch (proxyError) {
+        console.error('Proxy recipes fetch failed, trying API Ninjas', proxyError);
+        if (apiKeyContainer) {
+          apiKeyContainer.style.display = 'inline-block';
+        }
+        payload = await tryApiNinjasFetch();
+        usedFallback = true;
+      }
+
+      const sortedResults = normalizeResults(payload)
+        .map(result => ({ result, source: usedFallback ? 'ninjas' : 'proxy' }))
+        .sort((a, b) => {
+          const scoreA = typeof a.result?.spoonacularScore === 'number' ? a.result.spoonacularScore : 0;
+          const scoreB = typeof b.result?.spoonacularScore === 'number' ? b.result.spoonacularScore : 0;
+          return scoreB - scoreA;
+        });
+      const recipes = sortedResults.map(({ result }) => {
+        const instructions = toInstructionSteps(result);
+        const ingredients = toIngredientList(result);
+        const summary = stripHtml(result.summary) || instructions[0] || '';
+        const facts = buildFactEntries(result);
+        const tagGroups = buildTagGroups(result);
+        const badges = buildBadges(result);
+        const winePairing = {
+          wines: Array.isArray(result.winePairing?.pairedWines)
+            ? result.winePairing.pairedWines.filter(Boolean)
+            : [],
+          text: stripHtml(result.winePairing?.pairingText)
+        };
+        const storage = {
+          id: result.id ?? null,
+          title: result.title || 'Untitled',
+          sourceUrl: result.sourceUrl || ''
+        };
+        const storageKey = toUniqueKey(storage);
+        return {
+          storage,
+          storageKey,
+          title: result.title || 'Untitled',
+          image: result.image || '',
+          summary,
+          ingredients,
+          instructions,
+          facts,
+          tagGroups,
+          badges,
+          sourceName: result.sourceName || '',
+          sourceUrl: result.sourceUrl || '',
+          winePairing
+        };
+      });
       if (recipes.length === 0) {
         listEl.textContent = 'No recipes found.';
         return;
@@ -423,15 +542,18 @@ export async function initRecipesPanel() {
       localStorage.setItem('recipesQuery', query);
     } catch (err) {
       console.error('Failed to load recipes', err);
+      if (err?.code === 'missing_api_key' && apiKeyContainer) {
+        apiKeyContainer.style.display = 'inline-block';
+      }
       const instructions = document.createElement('div');
       instructions.className = 'recipes-error';
       instructions.innerHTML = `
         <p>We couldn't reach the recipes service.</p>
         <p>To fix this locally:</p>
         <ol>
-          <li>Create a <code>.env</code> file in the project root (the same folder as <code>package.json</code>) with your Spoonacular key, e.g. <code>SPOONACULAR_KEY=your_api_key_here</code>.</li>
-          <li>Restart the server with <code>npm start</code> so <code>/api/spoonacular</code> becomes available.</li>
-          <li>If you rely on a hosted proxy instead, assign its base URL to <code>window.apiBaseUrl</code> before calling <code>initRecipesPanel()</code>.</li>
+          <li>If you have a proxy server, make sure it is running so <code>${proxyUrl}</code> is accessible.</li>
+          <li>Otherwise, enter your API Ninjas key above. We'll store it safely in this browser so you only need to enter it once.</li>
+          <li>You can also set <code>window.apiBaseUrl</code> before calling <code>initRecipesPanel()</code> to point at a hosted proxy.</li>
         </ol>
         <p>After updating the configuration, try searching again.</p>
       `;

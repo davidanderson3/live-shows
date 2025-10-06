@@ -27,9 +27,18 @@ function buildDom() {
     </div>
     <div id="movieStreamSection"></div>
     <div id="savedMoviesSection" style="display:none">
+      <div id="savedMoviesFilters" class="genre-filter"></div>
       <div id="savedMoviesList"></div>
     </div>
     <div id="watchedMoviesSection" style="display:none">
+      <div id="watchedMoviesControls" class="movie-controls">
+        <label for="watchedMoviesSort">Sort by:</label>
+        <select id="watchedMoviesSort">
+          <option value="recent">Recently Updated</option>
+          <option value="ratingDesc">Rating: High to Low</option>
+          <option value="ratingAsc">Rating: Low to High</option>
+        </select>
+      </div>
       <div id="watchedMoviesList"></div>
     </div>
     <div id="movieList"></div>
@@ -298,6 +307,95 @@ describe('initMoviesPanel', () => {
     expect(meta).toContain('Cast: Breakout Star');
   });
 
+  it('filters saved movies by genre tags', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const userId = 'genre-user';
+    authModuleMock.getCurrentUser.mockReturnValue({ uid: userId });
+    authModuleMock.awaitAuthUser.mockResolvedValue({ uid: userId });
+
+    firestoreDocMock.get.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        prefs: {
+          '1': {
+            status: 'interested',
+            interest: 4,
+            updatedAt: 2,
+            movie: {
+              id: 1,
+              title: 'Drama Pick',
+              release_date: '2023-01-01',
+              poster_path: '',
+              overview: '',
+              genre_ids: [101]
+            }
+          },
+          '2': {
+            status: 'interested',
+            interest: 3,
+            updatedAt: 1,
+            movie: {
+              id: 2,
+              title: 'Comedy Night',
+              release_date: '2023-02-02',
+              poster_path: '',
+              overview: '',
+              genre_ids: [102]
+            }
+          }
+        }
+      })
+    });
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ results: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            genres: [
+              { id: 101, name: 'Drama' },
+              { id: 102, name: 'Comedy' }
+            ]
+          })
+      });
+
+    await initMoviesPanel();
+
+    const filterButtons = Array.from(document.querySelectorAll('#savedMoviesFilters button')).map(btn =>
+      btn.textContent
+    );
+    expect(filterButtons).toEqual(['All', 'Comedy', 'Drama']);
+
+    const listTitles = () =>
+      Array.from(document.querySelectorAll('#savedMoviesList h3')).map(h => h.textContent);
+
+    expect(listTitles()).toHaveLength(2);
+
+    const comedyButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === 'Comedy'
+    );
+    comedyButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const comedyTitles = listTitles();
+    expect(comedyTitles).toHaveLength(1);
+    expect(comedyTitles[0]).toContain('Comedy Night');
+
+    const allButton = Array.from(document.querySelectorAll('#savedMoviesFilters button')).find(
+      btn => btn.dataset.genre === ''
+    );
+    allButton?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    expect(listTitles()).toHaveLength(2);
+  });
+
   it('routes movie requests through the Cloud Function proxy', async () => {
     const dom = buildDom();
     attachWindow(dom);
@@ -422,16 +520,99 @@ describe('initMoviesPanel', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.querySelector('#watchedMoviesList').textContent).toContain('Classic Film');
+    const ratingText = document.querySelector('#watchedMoviesList .movie-rating')?.textContent || '';
+    expect(ratingText).toContain('Rating: 9.1');
+    expect(ratingText).toContain('900 votes');
     const watchedMeta = document.querySelector('#watchedMoviesList .movie-meta')?.textContent || '';
     expect(watchedMeta).toContain('Genres: Adventure');
     expect(watchedMeta).toContain('Director: Famed Director');
     expect(watchedMeta).toContain('Cast: Iconic Star');
     
+    expect(watchedMeta).toContain('Average Score: 9.1');
+    expect(watchedMeta).toContain('Release Date: 1999-07-16');
+
     const removeBtn = document.querySelector('#watchedMoviesList button');
     removeBtn?.click();
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(document.querySelector('#movieList').textContent).toContain('Classic Film');
+  });
+
+  it('sorts watched movies by rating when selected', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const page = {
+      results: [
+        {
+          id: 20,
+          title: 'Low Rated',
+          release_date: '2020-01-01',
+          vote_average: 7.4,
+          vote_count: 200,
+          overview: 'Solid enough.',
+          genre_ids: []
+        },
+        {
+          id: 21,
+          title: 'High Rated',
+          release_date: '2021-05-10',
+          vote_average: 9.4,
+          vote_count: 850,
+          overview: 'Critically acclaimed.',
+          genre_ids: []
+        }
+      ],
+      total_pages: 1
+    };
+    const creditsA = { cast: [], crew: [] };
+    const creditsB = { cast: [], crew: [] };
+    const genres = { genres: [] };
+
+    configureFetchResponses([page, creditsA, creditsB, genres]);
+
+    await initMoviesPanel();
+
+    const cards = Array.from(document.querySelectorAll('#movieList li'));
+    const lowCard = cards.find(card => card.textContent.includes('Low Rated'));
+    const highCard = cards.find(card => card.textContent.includes('High Rated'));
+    const lowWatch = lowCard
+      ? Array.from(lowCard.querySelectorAll('button')).find(b => b.textContent === 'Watched Already')
+      : null;
+    const highWatch = highCard
+      ? Array.from(highCard.querySelectorAll('button')).find(b => b.textContent === 'Watched Already')
+      : null;
+
+    expect(lowWatch).toBeTruthy();
+    expect(highWatch).toBeTruthy();
+
+    lowWatch?.click();
+    highWatch?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.querySelectorAll('#watchedMoviesList .movie-card')).toHaveLength(2);
+
+    const sortSelect = document.getElementById('watchedMoviesSort');
+    sortSelect.value = 'ratingDesc';
+    sortSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const titlesDesc = Array.from(
+      document.querySelectorAll('#watchedMoviesList .movie-card h3')
+    ).map(el => el.textContent);
+    expect(titlesDesc[0]).toContain('High Rated');
+    expect(titlesDesc[1]).toContain('Low Rated');
+
+    sortSelect.value = 'ratingAsc';
+    sortSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const titlesAsc = Array.from(
+      document.querySelectorAll('#watchedMoviesList .movie-card h3')
+    ).map(el => el.textContent);
+    expect(titlesAsc[0]).toContain('Low Rated');
+    expect(titlesAsc[1]).toContain('High Rated');
   });
 
   it('saves preferences to Firestore for authenticated users', async () => {

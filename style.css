@@ -2256,6 +2256,28 @@ h2 {
   margin-bottom: 8px;
 }
 
+.genre-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.genre-filter-btn {
+  border: 1px solid #ccc;
+  background: #f2f2f2;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.genre-filter-btn.active {
+  background: #7aa68c;
+  color: #fff;
+  border-color: #7aa68c;
+}
+
 .movie-tab,
 .shows-tab {
   flex: 1 1 0;
@@ -2416,6 +2438,30 @@ h2 {
 .movie-info h3 {
   margin: 0 0 0.5rem 0;
   font-size: 1.1rem;
+}
+
+.movie-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.movie-controls label {
+  font-weight: 600;
+}
+
+.movie-controls select {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+.movie-rating {
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
 }
 
 .movie-meta {
