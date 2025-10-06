@@ -541,7 +541,10 @@ export async function initShowsPanel() {
     const storedToken =
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
     if (storedToken) {
-      if (tokenBtn) tokenBtn.textContent = 'Login to Spotify';
+      if (tokenBtn) {
+        tokenBtn.textContent = 'Login to Spotify';
+        tokenBtn.style.display = 'none';
+      }
       if (statusEl) {
         statusEl.textContent = 'Signed in to Spotify';
         statusEl.classList.add('shows-spotify-status');
@@ -551,7 +554,10 @@ export async function initShowsPanel() {
         tokenInput.style.display = 'none';
       }
     } else {
-      if (tokenBtn) tokenBtn.textContent = 'Login to Spotify';
+      if (tokenBtn) {
+        tokenBtn.textContent = 'Login to Spotify';
+        tokenBtn.style.display = '';
+      }
       if (statusEl) {
         statusEl.textContent = '';
         statusEl.classList.remove('shows-spotify-status');
