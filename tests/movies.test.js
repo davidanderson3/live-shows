@@ -335,6 +335,56 @@ describe('initMoviesPanel', () => {
     expect(global.localStorage.getItem('moviesApiKey')).toBeNull();
   });
 
+  it('retries credits proxy requests with legacy parameter names when needed', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbProxyEndpoint = 'https://mock-functions.net/tmdbProxy';
+
+    const page = {
+      results: [
+        {
+          id: 42,
+          title: 'Legacy Param Movie',
+          release_date: '2024-06-01',
+          vote_average: 7.8,
+          vote_count: 120,
+          overview: 'Testing legacy proxy parameters.',
+          genre_ids: []
+        }
+      ]
+    };
+    const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Proxy Legacy Star' }],
+      crew: [{ job: 'Director', name: 'Legacy Director' }]
+    };
+    const genres = { genres: [] };
+
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(empty) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify({ error: 'invalid_endpoint_params' }))
+      })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(credits) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(genres) });
+
+    await initMoviesPanel();
+
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+    const firstCreditsUrl = String(global.fetch.mock.calls[2][0]);
+    const retryCreditsUrl = String(global.fetch.mock.calls[3][0]);
+    expect(firstCreditsUrl).toContain('endpoint=credits');
+    expect(firstCreditsUrl).toContain('movie_id=');
+    expect(retryCreditsUrl).toContain('endpoint=credits');
+    expect(retryCreditsUrl).toContain('movieId=');
+
+    const listContent = document.getElementById('movieList')?.textContent || '';
+    expect(listContent).toContain('Proxy Legacy Star');
+  });
+
   it('moves watched movies to the watched list and allows removal', async () => {
     const dom = buildDom();
     attachWindow(dom);
