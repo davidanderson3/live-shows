@@ -3,6 +3,79 @@ const API_BASE_URL =
   (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
   (typeof window !== 'undefined' ? window.location.origin : '');
 
+const DEFAULT_EVENTBRITE_ENDPOINT =
+  (typeof process !== 'undefined' &&
+    process.env &&
+    (process.env.EVENTBRITE_ENDPOINT || process.env.EVENTBRITE_PROXY_ENDPOINT)) ||
+  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/eventbriteProxy';
+
+function normalizeEndpoint(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveEventbriteEndpoint(baseUrl) {
+  const override =
+    (typeof window !== 'undefined' && 'eventbriteEndpoint' in window
+      ? normalizeEndpoint(window.eventbriteEndpoint)
+      : '') || '';
+
+  if (override) {
+    const trimmedOverride = override.replace(/\/$/, '');
+    return {
+      endpoint: trimmedOverride,
+      isRemote: isRemoteEndpoint(trimmedOverride)
+    };
+  }
+
+  const trimmedBase = normalizeEndpoint(baseUrl).replace(/\/$/, '');
+  if (!trimmedBase) {
+    return { endpoint: DEFAULT_EVENTBRITE_ENDPOINT, isRemote: true };
+  }
+
+  if (trimmedBase.endsWith('/api/eventbrite') || trimmedBase.endsWith('/eventbriteProxy')) {
+    return {
+      endpoint: trimmedBase,
+      isRemote: isRemoteEndpoint(trimmedBase)
+    };
+  }
+
+  if (trimmedBase.endsWith('/api')) {
+    const endpoint = `${trimmedBase}/eventbrite`;
+    return { endpoint, isRemote: isRemoteEndpoint(endpoint) };
+  }
+
+  if (/cloudfunctions\.net/i.test(trimmedBase)) {
+    const endpoint = `${trimmedBase}/eventbriteProxy`;
+    return { endpoint, isRemote: true };
+  }
+
+  const endpoint = `${trimmedBase}/api/eventbrite`;
+  return { endpoint, isRemote: isRemoteEndpoint(endpoint) };
+}
+
+function isRemoteEndpoint(endpoint) {
+  if (!endpoint) return false;
+  if (/cloudfunctions\.net/i.test(endpoint)) {
+    return true;
+  }
+  if (/^https?:\/\//i.test(endpoint) && typeof window !== 'undefined') {
+    try {
+      const resolved = new URL(endpoint, window.location.origin);
+      return resolved.origin !== window.location.origin;
+    } catch (err) {
+      console.warn('Unable to resolve Eventbrite endpoint URL', err);
+      return true;
+    }
+  }
+  return /^https?:\/\//i.test(endpoint);
+}
+
+function appendQuery(endpoint, params) {
+  if (!params) return endpoint;
+  const joiner = endpoint.includes('?') ? '&' : '?';
+  return `${endpoint}${joiner}${params.toString()}`;
+}
+
 function randomString(length) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let str = '';
@@ -1420,8 +1493,26 @@ export async function initShowsPanel() {
         if (requiresManualToken) {
           params.set('token', manualApiToken);
         }
-        const ebUrl = `${apiBase}/api/eventbrite?${params.toString()}`;
-        const res = await fetch(ebUrl);
+        const { endpoint: eventbriteEndpoint, isRemote } = resolveEventbriteEndpoint(apiBase);
+        const fallbackEndpoint = !isRemote && eventbriteEndpoint !== DEFAULT_EVENTBRITE_ENDPOINT
+          ? DEFAULT_EVENTBRITE_ENDPOINT
+          : null;
+
+        const primaryUrl = appendQuery(eventbriteEndpoint, params);
+        const fallbackUrl = fallbackEndpoint ? appendQuery(fallbackEndpoint, params) : null;
+
+        let res;
+        try {
+          res = await fetch(primaryUrl);
+          if (!res.ok && res.status === 404 && fallbackUrl) {
+            res = await fetch(fallbackUrl);
+          }
+        } catch (err) {
+          if (!fallbackUrl) {
+            throw err;
+          }
+          res = await fetch(fallbackUrl);
+        }
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
           const error = new Error(
@@ -1512,7 +1603,7 @@ export async function initShowsPanel() {
 
       if (err?.status === 404) {
         listEl.innerHTML =
-          '<p class="shows-empty">The Eventbrite search route is missing. Start the local backend (npm start) so /api/eventbrite is available.</p>';
+          '<p class="shows-empty">The Eventbrite search API is unavailable. Point <code>API_BASE_URL</code> at your deployed Firebase Functions proxy (or start the local backend) so Eventbrite searches can run.</p>';
       } else if (err?.status === 401) {
         renderShowsMessage(
           'Eventbrite rejected the token. Enter your personal OAuth token (a.k.a. private token) from Eventbrite account settings.'

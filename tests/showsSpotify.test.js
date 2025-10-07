@@ -124,6 +124,32 @@ describe('initShowsPanel', () => {
     expect(document.querySelectorAll('.show-card__button').length).toBe(2);
   });
 
+  it('falls back to the Firebase Eventbrite proxy when the local route is missing', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasEventbriteToken: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Fallback Artist' }] }) })
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'Missing', json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeEventbriteResponse([
+            makeEventbriteEvent({ id: 'fb1', name: 'Fallback Concert', artists: ['Fallback Artist'] })
+          ])
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+
+    await flush();
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls[2][0]).toContain('/api/eventbrite');
+    expect(fetch.mock.calls[3][0]).toContain('eventbriteProxy');
+    expect(document.querySelectorAll('.show-card').length).toBe(1);
+    expect(document.querySelector('.show-card__title')?.textContent).toContain('Fallback Concert');
+  });
+
   it('respects updated configuration values on Discover reload', async () => {
     fetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasEventbriteToken: true }) })
