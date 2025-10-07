@@ -1411,9 +1411,12 @@ export async function initShowsPanel() {
         const res = await fetch(ebUrl);
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          throw new Error(
+          const error = new Error(
             `Eventbrite HTTP ${res.status}${errText ? `: ${errText.slice(0, 200)}` : ''}`
           );
+          error.status = res.status;
+          error.responseText = errText;
+          throw error;
         }
         eventbriteData = await res.json();
         setCachedEventbriteResponse(cacheParams, eventbriteData);
@@ -1493,7 +1496,16 @@ export async function initShowsPanel() {
       console.error('Failed to load shows', err);
       currentShows = [];
       currentSuggestions = [];
-      listEl.textContent = 'Failed to load shows.';
+
+      if (err?.status === 404) {
+        listEl.innerHTML =
+          '<p class="shows-empty">The Eventbrite search route is missing. Start the local backend (npm start) so /api/eventbrite is available.</p>';
+      } else if (err?.status === 401) {
+        listEl.innerHTML =
+          '<p class="shows-empty">Eventbrite rejected the token. Enter your personal OAuth token (a.k.a. private token) from Eventbrite account settings.</p>';
+      } else {
+        listEl.textContent = 'Failed to load shows.';
+      }
     } finally {
       stopLoading();
     }

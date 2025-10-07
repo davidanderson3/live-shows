@@ -78,6 +78,8 @@ The Eventbrite proxy performs a location-first search and the client highlights 
 2. Filters the returned events to your configured radius and promotes matches whose performers overlap with your top Spotify artists.
 3. Sorts events by proximity and renders ticket links, badges, and Interested/Not Interested actions in the dashboard.
 
+When Eventbrite asks for credentials, supply the **personal OAuth token** (labelled "private token" in their UI) that appears under **Account Settings → Developer → Your personal token**. The classic API key/secret pair does not authorize the Events Search endpoint, so the proxy will return HTTP 401 if you paste those values. You can also set the same personal token in `EVENTBRITE_API_TOKEN` (or `EVENTBRITE_OAUTH_TOKEN`) on the backend to avoid entering it in the browser.
+
 If no Eventbrite API token is available, Discover prompts for one and never transmits the request without explicit credentials.
 
 ### Alternative live music APIs
@@ -134,6 +136,7 @@ Remember to also configure Firebase (see `firebase.json` and `.firebaserc`) if y
 ## Troubleshooting Checklist
 - **Spotify login issues** – confirm the redirect URI configured in your Spotify developer dashboard matches the origin and that you requested the correct scopes (`user-top-read` plus `user-library-read` if you enable liked-artist mode).
 - **Empty Discover results** – verify your Eventbrite token is present and that the search radius encompasses nearby venues; the UI will also display the last error returned by the Eventbrite API.
+- **`Cannot GET /api/eventbrite`** – start the Express server (`npm start`) or point `API_BASE_URL` at the deployed proxy so the Discover tab can reach `/api/eventbrite`.
 - **Spoonacular quota errors** – the proxy caches responses for six hours; if you keep seeing rate-limit messages clear the cache collection in Firestore or wait for the TTL to expire.
 - **Firestore permission denials** – authenticate with Google using the Sign In button; most persistence features require a logged-in user.
 - **Yelp proxy failures** – ensure the `x-api-key` header or `YELP_API_KEY` env var is set. The API returns `missing yelp api key` if not.

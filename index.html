@@ -144,8 +144,17 @@
             <button type="button" class="icon-btn tab-hide-btn" title="Hide Tab">🕒</button>
           </div>
           <div id="eventbriteForm" style="margin-bottom:1rem;">
-            <input type="password" id="eventbriteApiToken" placeholder="Eventbrite API token" style="margin-right:.5rem;">
+            <input
+              type="password"
+              id="eventbriteApiToken"
+              placeholder="Eventbrite personal token"
+              style="margin-right:.5rem;"
+              aria-describedby="eventbriteTokenHelp"
+            >
             <button type="button" id="eventbriteDiscoverBtn" class="shows-discover-btn">Discover</button>
+            <p id="eventbriteTokenHelp" class="shows-token-help">
+              Use the personal OAuth token (sometimes labelled <em>private token</em>) from your Eventbrite account settings.
+            </p>
           </div>
           <div id="showsConfigControls" class="shows-config">
             <div class="shows-config__field">

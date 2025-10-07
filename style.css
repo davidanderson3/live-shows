@@ -586,6 +586,12 @@ button:hover {
   margin-top: 0.5rem;
 }
 
+.shows-token-help {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #4f5b55;
+}
+
 .shows-discover-btn:hover:not(:disabled),
 .shows-discover-btn:focus-visible:not(:disabled) {
   background: #688f78;
