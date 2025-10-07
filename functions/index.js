@@ -35,7 +35,7 @@ function normalizePositiveInteger(value, { min = 1, max = Number.MAX_SAFE_INTEGE
   return clamped;
 }
 
-function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit, radiusMiles }) {
   const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
   const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
@@ -58,6 +58,11 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
     parts.push(`limit:${limit}`);
   } else {
     parts.push('limit:default');
+  }
+  if (Number.isFinite(radiusMiles) && radiusMiles > 0) {
+    parts.push(`radius:${Number(radiusMiles.toFixed(1))}`);
+  } else {
+    parts.push('radius:none');
   }
   return parts;
 }
@@ -477,12 +482,25 @@ exports.restaurantsProxy = functions
     });
     const targetTotal = requestedLimit || YELP_DEFAULT_TOTAL_LIMIT;
 
+    const rawRadius = resolveSingle(req.query?.radius);
+    const parsedRadius =
+      rawRadius === undefined || rawRadius === null || rawRadius === ''
+        ? null
+        : Number.parseFloat(rawRadius);
+    const radiusMiles =
+      Number.isFinite(parsedRadius) && parsedRadius > 0 ? Math.min(parsedRadius, 25) : null;
+    const radiusMeters =
+      Number.isFinite(radiusMiles) && radiusMiles > 0
+        ? Math.min(Math.round(radiusMiles * 1609.34), 40000)
+        : null;
+
     const cacheKey = yelpCacheKeyParts({
       city,
       latitude,
       longitude,
       cuisine,
-      limit: targetTotal
+      limit: targetTotal,
+      radiusMiles
     });
     const cached = await readCachedResponse(
       YELP_CACHE_COLLECTION,
@@ -503,6 +521,9 @@ exports.restaurantsProxy = functions
       baseParams.set('latitude', String(latitude));
       baseParams.set('longitude', String(longitude));
       baseParams.set('sort_by', 'distance');
+      if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
+        baseParams.set('radius', String(radiusMeters));
+      }
     } else if (city) {
       baseParams.set('location', city);
     }
@@ -579,7 +600,8 @@ exports.restaurantsProxy = functions
           cuisine,
           requestedLimit: targetTotal,
           returned: simplified.length,
-          totalAvailable
+          totalAvailable,
+          radiusMiles: Number.isFinite(radiusMiles) ? radiusMiles : null
         }
       });
 

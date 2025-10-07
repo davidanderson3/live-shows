@@ -98,7 +98,7 @@ function normalizePositiveInteger(value, { min = 1, max = Number.MAX_SAFE_INTEGE
   return clamped;
 }
 
-function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit, radiusMiles }) {
   const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
   const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
@@ -121,6 +121,11 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
     parts.push(`limit:${limit}`);
   } else {
     parts.push('limit:default');
+  }
+  if (Number.isFinite(radiusMiles) && radiusMiles > 0) {
+    parts.push(`radius:${Number(radiusMiles.toFixed(1))}`);
+  } else {
+    parts.push('radius:none');
   }
   return parts;
 }
@@ -289,12 +294,21 @@ app.get('/api/restaurants', async (req, res) => {
   });
   const targetTotal = requestedLimit || YELP_DEFAULT_TOTAL_LIMIT;
 
+  const parsedRadius = parseNumberQuery(req.query?.radius);
+  const radiusMiles =
+    Number.isFinite(parsedRadius) && parsedRadius > 0 ? Math.min(parsedRadius, 25) : null;
+  const radiusMeters =
+    Number.isFinite(radiusMiles) && radiusMiles > 0
+      ? Math.min(Math.round(radiusMiles * 1609.34), 40000)
+      : null;
+
   const cacheKeyParts = yelpCacheKeyParts({
     city,
     latitude,
     longitude,
     cuisine,
-    limit: targetTotal
+    limit: targetTotal,
+    radiusMiles
   });
   const cached = await readCachedResponse(YELP_CACHE_COLLECTION, cacheKeyParts, YELP_CACHE_TTL_MS);
   if (sendCachedResponse(res, cached)) {
@@ -309,6 +323,9 @@ app.get('/api/restaurants', async (req, res) => {
       baseParams.set('latitude', String(latitude));
       baseParams.set('longitude', String(longitude));
       baseParams.set('sort_by', 'distance');
+      if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
+        baseParams.set('radius', String(radiusMeters));
+      }
     } else if (city) {
       baseParams.set('location', String(city));
     }
@@ -384,7 +401,8 @@ app.get('/api/restaurants', async (req, res) => {
         cuisine: typeof cuisine === 'string' ? cuisine : '',
         requestedLimit: targetTotal,
         returned: simplified.length,
-        totalAvailable
+        totalAvailable,
+        radiusMiles: Number.isFinite(radiusMiles) ? radiusMiles : null
       }
     });
 

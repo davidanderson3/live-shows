@@ -5,6 +5,7 @@ const FALLBACK_API_BASE = DEFAULT_REMOTE_API_BASE;
 const TARGET_NEARBY_RESULTS = 60;
 const MAX_NEARBY_RESULTS = 200;
 const NEARBY_RESULTS_INCREMENT = 40;
+const NEARBY_RADIUS_STEPS_MILES = [null, 25];
 
 let initialized = false;
 let mapInstance = null;
@@ -31,6 +32,7 @@ let lastNearbyFetchOptions = null;
 let currentView = 'nearby';
 let isFetchingNearby = false;
 let userLocation = null;
+let nearbyRadiusIndex = 0;
 
 const domRefs = {
   resultsRoot: null,
@@ -972,6 +974,26 @@ function renderRestaurantsList(container, items, emptyMessage) {
   refreshActiveMarkerHighlight();
 }
 
+function resetNearbyRadius() {
+  nearbyRadiusIndex = 0;
+}
+
+function getCurrentNearbyRadiusMiles() {
+  const value = NEARBY_RADIUS_STEPS_MILES[nearbyRadiusIndex];
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function canExpandNearbyRadius() {
+  return nearbyRadiusIndex < NEARBY_RADIUS_STEPS_MILES.length - 1;
+}
+
+function advanceNearbyRadius() {
+  if (canExpandNearbyRadius()) {
+    nearbyRadiusIndex += 1;
+  }
+  return getCurrentNearbyRadiusMiles();
+}
+
 function shouldRequestMoreNearby() {
   if (!lastNearbyFetchOptions) return false;
   if (!Array.isArray(rawNearbyRestaurants) || !rawNearbyRestaurants.length) {
@@ -1204,6 +1226,7 @@ async function fetchRestaurants({
   latitude,
   longitude,
   city,
+  radiusMiles,
   skipCoordinates = false,
   limit
 }) {
@@ -1212,6 +1235,7 @@ async function fetchRestaurants({
     typeof latitude === 'string' ? Number(latitude) : latitude;
   const parsedLongitude =
     typeof longitude === 'string' ? Number(longitude) : longitude;
+  const rawRadius = typeof radiusMiles === 'string' ? Number(radiusMiles) : radiusMiles;
   const hasLatitude = Number.isFinite(parsedLatitude);
   const hasLongitude = Number.isFinite(parsedLongitude);
   const shouldIncludeCoords = !skipCoordinates && hasLatitude && hasLongitude;
@@ -1224,6 +1248,9 @@ async function fetchRestaurants({
   if (shouldIncludeCoords) {
     params.set('latitude', String(parsedLatitude));
     params.set('longitude', String(parsedLongitude));
+  }
+  if (Number.isFinite(rawRadius) && rawRadius > 0) {
+    params.set('radius', String(rawRadius));
   }
   if (city) {
     params.set('city', String(city));
@@ -1257,6 +1284,7 @@ async function loadNearbyRestaurants(container) {
   isFetchingNearby = true;
   requestedNearbyLimit = TARGET_NEARBY_RESULTS;
   lastNearbyFetchOptions = null;
+  resetNearbyRadius();
   renderMessage(targetContainer, 'Requesting your location…');
   clearMap();
   clearUserLocation();
@@ -1287,12 +1315,28 @@ async function loadNearbyRestaurants(container) {
     setUserLocation(latitude, longitude);
     const city = await reverseGeocodeCity(latitude, longitude);
     const initialLimit = resolveNearbyLimit(requestedNearbyLimit);
-    let fetchOptions = { latitude, longitude, city, skipCoordinates: false };
+    const baseOptions = { latitude, longitude, city, skipCoordinates: false };
+    const initialRadius = getCurrentNearbyRadiusMiles();
+    let fetchOptions =
+      Number.isFinite(initialRadius) && initialRadius > 0
+        ? { ...baseOptions, radiusMiles: initialRadius }
+        : { ...baseOptions };
     let data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
+
+    while ((!Array.isArray(data) || data.length === 0) && canExpandNearbyRadius()) {
+      renderMessage(targetContainer, 'Searching for more restaurants…');
+      const nextRadius = advanceNearbyRadius();
+      const nextOptions =
+        Number.isFinite(nextRadius) && nextRadius > 0
+          ? { ...baseOptions, radiusMiles: nextRadius }
+          : { ...baseOptions };
+      fetchOptions = nextOptions;
+      data = await fetchRestaurants({ ...nextOptions, limit: initialLimit });
+    }
 
     if ((!Array.isArray(data) || data.length === 0) && city) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
-      fetchOptions = { latitude, longitude, city, skipCoordinates: true };
+      fetchOptions = { ...baseOptions, skipCoordinates: true };
       data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
     }
 

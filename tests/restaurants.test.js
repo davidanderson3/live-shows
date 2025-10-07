@@ -205,7 +205,7 @@ describe('initRestaurantsPanel', () => {
     });
     global.navigator = window.navigator;
 
-    const fallbackData = [
+    const expandedRadiusData = [
       { name: 'Fallback Favorite', rating: 4.5, reviewCount: 120, distance: 900 },
       { name: 'Backup Bistro', rating: 4.2, reviewCount: 80, distance: 1500 }
     ];
@@ -222,7 +222,7 @@ describe('initRestaurantsPanel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(fallbackData)
+        json: () => Promise.resolve(expandedRadiusData)
       });
 
     await initRestaurantsPanel();
@@ -231,10 +231,10 @@ describe('initRestaurantsPanel', () => {
     expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
     expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
     expect(fetch.mock.calls[1][0]).toContain('limit=60');
-    expect(fetch.mock.calls[2][0]).toContain('city=Austin');
+    expect(fetch.mock.calls[2][0]).toContain('latitude=30.2672');
+    expect(fetch.mock.calls[2][0]).toContain('longitude=-97.7431');
     expect(fetch.mock.calls[2][0]).toContain('limit=60');
-    expect(fetch.mock.calls[2][0]).not.toContain('latitude=');
-    expect(fetch.mock.calls[2][0]).not.toContain('longitude=');
+    expect(fetch.mock.calls[2][0]).toContain('radius=25');
 
     const results = document.getElementById('restaurantsResults');
     const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
