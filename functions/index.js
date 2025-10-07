@@ -402,12 +402,12 @@ exports.restaurantsProxy = functions
 
     const params = new URLSearchParams({
       categories: 'restaurants',
-      limit: '20',
-      sort_by: 'rating'
+      limit: '50'
     });
     if (hasCoords) {
       params.set('latitude', String(latitude));
       params.set('longitude', String(longitude));
+      params.set('sort_by', 'distance');
     } else if (city) {
       params.set('location', city);
     }
