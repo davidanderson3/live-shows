@@ -2786,6 +2786,17 @@ h2 {
   background: #f6faf7;
 }
 
+.leaflet-marker-icon {
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.leaflet-marker-icon.is-active {
+  filter: drop-shadow(0 0 10px rgba(37, 99, 235, 0.65));
+  transform: scale(1.08);
+  transform-origin: center bottom;
+  z-index: 1000 !important;
+}
+
 .restaurants-map--empty::after {
   content: 'Map updates once results are available';
   position: absolute;
@@ -2838,6 +2849,11 @@ h2 {
 .restaurant-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 18px 42px rgba(25, 55, 45, 0.18);
+}
+
+.restaurant-card.is-active {
+  border-color: rgba(37, 99, 235, 0.3);
+  box-shadow: 0 20px 50px rgba(37, 99, 235, 0.22);
 }
 
 .restaurant-card__header {
