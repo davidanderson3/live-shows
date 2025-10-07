@@ -106,6 +106,40 @@ describe('initRecipesPanel', () => {
     expect(tagChip.textContent).toBe('American');
   });
 
+  it('displays ingredient section when only nutrition ingredient data is available', async () => {
+    const mockResponse = {
+      results: [
+        {
+          title: 'Carrot Salad',
+          nutrition: {
+            ingredients: [
+              { name: 'carrot', amount: 2, unit: 'cups' },
+              { original: '1 tsp salt' }
+            ]
+          },
+          analyzedInstructions: [{ steps: [{ step: 'mix' }] }]
+        }
+      ]
+    };
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockResponse)
+      })
+    );
+
+    await initRecipesPanel();
+    document.getElementById('recipesQuery').value = 'carrot';
+    document.getElementById('recipesSearchBtn').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const ingredientItems = document.querySelectorAll('.recipe-card__ingredients li');
+    expect(Array.from(ingredientItems).map(el => el.textContent)).toEqual([
+      '2 cups carrot',
+      '1 tsp salt'
+    ]);
+  });
+
   it('allows expanding long summaries', async () => {
     const mockResponse = {
       results: [

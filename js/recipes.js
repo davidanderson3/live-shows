@@ -126,26 +126,79 @@ const toInstructionSteps = r => {
 };
 
 const toIngredientList = r => {
+  const ordered = [];
+  const unique = new Set();
+  const pushItems = items => {
+    items.forEach(text => {
+      const normalized = stripHtml(text || '');
+      if (!normalized) return;
+      const trimmed = normalized.replace(/\s+/g, ' ').trim();
+      if (!trimmed || unique.has(trimmed.toLowerCase())) return;
+      unique.add(trimmed.toLowerCase());
+      ordered.push(trimmed);
+    });
+  };
+
   if (Array.isArray(r.extendedIngredients)) {
-    return r.extendedIngredients
-      .map(ing => ing?.original || ing?.name || '')
-      .map(text => stripHtml(text))
-      .filter(Boolean);
+    const ingredients = r.extendedIngredients.map(ing => ing?.original || ing?.name || '');
+    pushItems(ingredients);
   }
+
+  if (Array.isArray(r.ingredientLines)) {
+    pushItems(r.ingredientLines);
+  }
+
   if (Array.isArray(r.ingredients)) {
-    return r.ingredients.map(text => stripHtml(text)).filter(Boolean);
-  }
-  if (typeof r.ingredients === 'string') {
+    pushItems(r.ingredients);
+  } else if (typeof r.ingredients === 'string') {
     const trimmed = stripHtml(r.ingredients);
-    if (!trimmed) return [];
-    const newlineSplit = trimmed.split(/\r?\n+/).map(text => text.trim()).filter(Boolean);
-    if (newlineSplit.length > 1) return newlineSplit;
-    return trimmed
-      .split(/,|•|\u2022/)
+    if (trimmed) {
+      const newlineSplit = trimmed.split(/\r?\n+/).map(text => text.trim()).filter(Boolean);
+      if (newlineSplit.length > 1) {
+        pushItems(newlineSplit);
+      } else {
+        const bullets = trimmed
+          .split(/,|•|\u2022/)
+          .map(text => text.trim())
+          .filter(Boolean);
+        pushItems(bullets.length ? bullets : [trimmed]);
+      }
+    }
+  }
+
+  const nutritionIngredients = Array.isArray(r.nutrition?.ingredients)
+    ? r.nutrition.ingredients
+    : [];
+  if (nutritionIngredients.length) {
+    const formatted = nutritionIngredients.map(ing => {
+      if (!ing) return '';
+      if (ing.original) return ing.original;
+      const parts = [];
+      if (ing.amount !== undefined && ing.amount !== null && ing.amount !== '') {
+        const amount = typeof ing.amount === 'number' ? ing.amount : Number(ing.amount);
+        if (!Number.isNaN(amount)) {
+          const rounded = Math.round(amount * 100) / 100;
+          parts.push(String(rounded));
+        } else if (typeof ing.amount === 'string') {
+          parts.push(ing.amount);
+        }
+      }
+      if (ing.unit) parts.push(ing.unit);
+      if (ing.name) parts.push(ing.name);
+      return parts.join(' ');
+    });
+    pushItems(formatted);
+  }
+
+  if (typeof r.nutrition?.ingredientList === 'string') {
+    const list = r.nutrition.ingredientList
+      .split(/\r?\n+/)
       .map(text => text.trim())
       .filter(Boolean);
+    pushItems(list);
   }
-  return [];
+
+  return ordered;
 };
 
 const normalizeResults = payload => {
