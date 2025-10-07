@@ -9,6 +9,9 @@ const TMDB_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
 const YELP_CACHE_COLLECTION = 'yelpCache';
 const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const YELP_MAX_PAGE_LIMIT = 50;
+const YELP_DEFAULT_TOTAL_LIMIT = 120;
+const YELP_ABSOLUTE_MAX_LIMIT = 200;
 const EVENTBRITE_BASE_URL = 'https://www.eventbriteapi.com/v3/events/search/';
 const EVENTBRITE_CACHE_COLLECTION = 'eventbriteCache';
 const EVENTBRITE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -25,7 +28,14 @@ function normalizeCoordinate(value) {
   return NaN;
 }
 
-function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
+function normalizePositiveInteger(value, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num)) return null;
+  const clamped = Math.min(Math.max(num, min), max);
+  return clamped;
+}
+
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
   const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
   const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
@@ -43,6 +53,11 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
   }
   if (normalizedCuisine) {
     parts.push(`cuisine:${normalizedCuisine}`);
+  }
+  if (Number.isFinite(limit) && limit > 0) {
+    parts.push(`limit:${limit}`);
+  } else {
+    parts.push('limit:default');
   }
   return parts;
 }
@@ -454,7 +469,21 @@ exports.restaurantsProxy = functions
       return;
     }
 
-    const cacheKey = yelpCacheKeyParts({ city, latitude, longitude, cuisine });
+    const rawLimit =
+      resolveSingle(req.query?.limit) || resolveSingle(req.query?.maxResults);
+    const requestedLimit = normalizePositiveInteger(rawLimit, {
+      min: 1,
+      max: YELP_ABSOLUTE_MAX_LIMIT
+    });
+    const targetTotal = requestedLimit || YELP_DEFAULT_TOTAL_LIMIT;
+
+    const cacheKey = yelpCacheKeyParts({
+      city,
+      latitude,
+      longitude,
+      cuisine,
+      limit: targetTotal
+    });
     const cached = await readCachedResponse(
       YELP_CACHE_COLLECTION,
       cacheKey,
@@ -467,39 +496,75 @@ exports.restaurantsProxy = functions
       return;
     }
 
-    const params = new URLSearchParams({
-      categories: 'restaurants',
-      limit: '50'
+    const baseParams = new URLSearchParams({
+      categories: 'restaurants'
     });
     if (hasCoords) {
-      params.set('latitude', String(latitude));
-      params.set('longitude', String(longitude));
-      params.set('sort_by', 'distance');
+      baseParams.set('latitude', String(latitude));
+      baseParams.set('longitude', String(longitude));
+      baseParams.set('sort_by', 'distance');
     } else if (city) {
-      params.set('location', city);
+      baseParams.set('location', city);
     }
     if (cuisine) {
-      params.set('term', cuisine);
+      baseParams.set('term', cuisine);
     }
 
     try {
-      const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`
+      const aggregated = [];
+      const seenIds = new Set();
+      let offset = 0;
+      let totalAvailable = null;
+      let shouldContinue = true;
+
+      while (shouldContinue && aggregated.length < targetTotal) {
+        const remainingNeeded = targetTotal - aggregated.length;
+        const batchLimit = Math.min(YELP_MAX_PAGE_LIMIT, remainingNeeded);
+        const params = new URLSearchParams(baseParams);
+        params.set('limit', String(batchLimit));
+        if (offset > 0) {
+          params.set('offset', String(offset));
         }
-      });
 
-      const data = await apiRes.json().catch(() => null);
+        const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`
+          }
+        });
 
-      if (!apiRes.ok || !data) {
-        const message =
-          data?.error?.description || data?.error?.code || data?.error || 'failed';
-        res.status(apiRes.status).json({ error: message });
-        return;
+        const data = await apiRes.json().catch(() => null);
+
+        if (!apiRes.ok || !data) {
+          const message =
+            data?.error?.description || data?.error?.code || data?.error || 'failed';
+          res.status(apiRes.status).json({ error: message });
+          return;
+        }
+
+        const results = Array.isArray(data?.businesses) ? data.businesses : [];
+        totalAvailable =
+          typeof data?.total === 'number' && data.total >= 0 ? data.total : totalAvailable;
+
+        offset += results.length;
+
+        for (const biz of results) {
+          if (!biz || typeof biz !== 'object') continue;
+          const id = biz.id;
+          if (!id || seenIds.has(id)) continue;
+          seenIds.add(id);
+          aggregated.push(biz);
+          if (aggregated.length >= targetTotal) {
+            break;
+          }
+        }
+        if (results.length < batchLimit) {
+          shouldContinue = false;
+        } else if (totalAvailable !== null && offset >= totalAvailable) {
+          shouldContinue = false;
+        }
       }
 
-      const results = Array.isArray(data?.businesses) ? data.businesses : [];
-      const simplified = results.map(simplifyBusiness).filter(Boolean);
+      const simplified = aggregated.map(simplifyBusiness).filter(Boolean);
       const payload = JSON.stringify(simplified);
 
       await writeCachedResponse(YELP_CACHE_COLLECTION, cacheKey, {
@@ -512,7 +577,9 @@ exports.restaurantsProxy = functions
           latitude: hasCoords ? latitude : null,
           longitude: hasCoords ? longitude : null,
           cuisine,
-          total: simplified.length
+          requestedLimit: targetTotal,
+          returned: simplified.length,
+          totalAvailable
         }
       });
 
