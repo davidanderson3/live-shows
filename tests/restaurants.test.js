@@ -337,12 +337,16 @@ describe('initRestaurantsPanel', () => {
     const savedContainer = document.getElementById('restaurantsSaved');
     expect(savedContainer?.textContent).toContain('Top Rated');
 
-    const updatedSaveButton = document.querySelector('#restaurantsNearby .restaurant-action--secondary');
-    expect(updatedSaveButton).toBeTruthy();
-    expect(updatedSaveButton.textContent).toBe('Saved');
-    updatedSaveButton.click();
+    const nearbyContainer = document.getElementById('restaurantsNearby');
+    expect(nearbyContainer?.textContent).not.toContain('Top Rated');
+
+    const savedSectionButton = savedContainer?.querySelector('.restaurant-action--secondary');
+    expect(savedSectionButton).toBeTruthy();
+    expect(savedSectionButton?.textContent).toBe('Saved');
+    savedSectionButton?.click();
 
     expect(savedContainer?.textContent).toContain('No saved restaurants yet.');
+    expect(nearbyContainer?.textContent).toContain('Top Rated');
   });
 
   it('moves hidden restaurants to the hidden section', async () => {
