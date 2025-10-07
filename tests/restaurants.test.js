@@ -185,6 +185,61 @@ describe('initRestaurantsPanel', () => {
     expect(headings).toEqual(['Local Favorite', 'Distant Gem']);
   });
 
+  it('uses user coordinates to sort by true distance even when API distances are misleading', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 37.7749, longitude: -122.4194 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const sampleData = [
+      {
+        name: 'Far Bistro',
+        rating: 4.9,
+        reviewCount: 320,
+        distance: 100,
+        latitude: 37.8044,
+        longitude: -122.2711
+      },
+      {
+        name: 'Nearby Cafe',
+        rating: 3.1,
+        reviewCount: 12,
+        distance: 5000,
+        latitude: 37.7755,
+        longitude: -122.4189
+      }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'San Francisco' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(sampleData)
+      });
+
+    await initRestaurantsPanel();
+
+    const headings = Array.from(
+      document.querySelectorAll('#restaurantsNearby h3')
+    ).map(el => el.textContent);
+    expect(headings).toEqual(['Nearby Cafe', 'Far Bistro']);
+  });
+
   it('allows saving and unsaving restaurants', async () => {
     const dom = setupDom();
     global.window = dom.window;
