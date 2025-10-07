@@ -9,6 +9,9 @@ const NEARBY_RESULTS_INCREMENT = 40;
 let initialized = false;
 let mapInstance = null;
 let mapMarkersLayer = null;
+let mapMarkersById = new Map();
+let activeMarkerKey = '';
+let activeRestaurantCard = null;
 
 const STORAGE_KEYS = {
   saved: 'restaurants:saved',
@@ -413,6 +416,9 @@ function clearMap() {
   if (mapMarkersLayer) {
     mapMarkersLayer.clearLayers();
   }
+  mapMarkersById.clear();
+  activeMarkerKey = '';
+  setActiveRestaurantCard(null);
   const mapElement =
     typeof document !== 'undefined' ? document.getElementById('restaurantsMap') : null;
   if (mapElement) {
@@ -423,6 +429,118 @@ function clearMap() {
       mapInstance.setView([39.5, -98.35], 4);
     } catch {}
   }
+}
+
+function getMarkerKey(rest) {
+  if (!rest) return '';
+  const id = normalizeId(rest.id);
+  if (id) return id;
+  const lat = parseCoordinate(rest.latitude);
+  const lng = parseCoordinate(rest.longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `${lat},${lng}`;
+  }
+  return '';
+}
+
+function findRestaurantCardByKey(key) {
+  if (!key || typeof document === 'undefined') return null;
+  const cards = document.querySelectorAll('.restaurant-card');
+  for (const card of cards) {
+    if (card.dataset.restaurantId === key) {
+      return card;
+    }
+  }
+  return null;
+}
+
+function setActiveRestaurantCard(card) {
+  if (!card || !card.isConnected) {
+    if (activeRestaurantCard && activeRestaurantCard.isConnected) {
+      activeRestaurantCard.classList.remove('is-active');
+    }
+    activeRestaurantCard = null;
+    return;
+  }
+
+  if (activeRestaurantCard && activeRestaurantCard !== card && activeRestaurantCard.isConnected) {
+    activeRestaurantCard.classList.remove('is-active');
+  }
+
+  card.classList.add('is-active');
+  activeRestaurantCard = card;
+}
+
+function highlightMapMarker(key, { pan = true, openPopup = true } = {}) {
+  if (!key) return;
+  const marker = mapMarkersById.get(key);
+  if (!marker) return;
+
+  if (activeMarkerKey && activeMarkerKey !== key) {
+    const previousMarker = mapMarkersById.get(activeMarkerKey);
+    if (previousMarker) {
+      const previousElement = previousMarker.getElement();
+      if (previousElement) {
+        previousElement.classList.remove('is-active');
+      }
+    }
+  }
+
+  activeMarkerKey = key;
+
+  const element = marker.getElement();
+  if (element) {
+    element.classList.add('is-active');
+  } else {
+    marker.once('add', () => {
+      const el = marker.getElement();
+      if (el) {
+        el.classList.add('is-active');
+      }
+    });
+  }
+
+  if (openPopup && typeof marker.openPopup === 'function') {
+    marker.openPopup();
+  }
+
+  const map = ensureMap();
+  if (pan && map) {
+    try {
+      map.panTo(marker.getLatLng(), { animate: true });
+    } catch {}
+  }
+}
+
+function activateRestaurant(key, { card, pan = true, openPopup = true, updateCard = true } = {}) {
+  if (!key) return;
+
+  if (updateCard) {
+    const targetCard = card || findRestaurantCardByKey(key);
+    setActiveRestaurantCard(targetCard);
+  }
+
+  highlightMapMarker(key, { pan, openPopup });
+}
+
+function refreshActiveMarkerHighlight() {
+  if (!activeMarkerKey) return;
+  if (!mapMarkersById.has(activeMarkerKey)) {
+    setActiveRestaurantCard(null);
+    return;
+  }
+  const card = findRestaurantCardByKey(activeMarkerKey);
+  activateRestaurant(activeMarkerKey, {
+    card,
+    pan: false,
+    openPopup: false
+  });
+}
+
+function focusRestaurantOnMap(rest, card) {
+  const key = getMarkerKey(rest);
+  if (!key) return;
+  activateRestaurant(key, { card });
 }
 
 function renderLoading(container) {
@@ -639,6 +757,11 @@ function createRestaurantCard(rest) {
   const card = document.createElement('article');
   card.className = 'restaurant-card';
 
+  const markerKey = getMarkerKey(rest);
+  if (markerKey) {
+    card.dataset.restaurantId = markerKey;
+  }
+
   const header = document.createElement('div');
   header.className = 'restaurant-card__header';
 
@@ -700,6 +823,10 @@ function createRestaurantCard(rest) {
     card.appendChild(footer);
   }
 
+  card.addEventListener('click', () => {
+    focusRestaurantOnMap(rest, card);
+  });
+
   return card;
 }
 
@@ -713,6 +840,7 @@ function updateMap(items = []) {
   if (!map || !mapMarkersLayer) return;
 
   mapMarkersLayer.clearLayers();
+  mapMarkersById.clear();
 
   const bounds = [];
   items.forEach(rest => {
@@ -735,6 +863,13 @@ function updateMap(items = []) {
     }
     marker.bindPopup(popupLines.join('<br>'));
     marker.addTo(mapMarkersLayer);
+    const key = getMarkerKey(rest);
+    if (key) {
+      mapMarkersById.set(key, marker);
+      marker.on('click', () => {
+        activateRestaurant(key, { pan: false });
+      });
+    }
     bounds.push([lat, lng]);
   });
 
@@ -758,6 +893,8 @@ function updateMap(items = []) {
     const layerBounds = window.L.latLngBounds(bounds);
     map.fitBounds(layerBounds, { padding: [24, 24], maxZoom: 15 });
   }
+
+  refreshActiveMarkerHighlight();
 }
 
 function getDistanceValue(rest) {
@@ -832,6 +969,7 @@ function renderRestaurantsList(container, items, emptyMessage) {
   });
 
   container.appendChild(grid);
+  refreshActiveMarkerHighlight();
 }
 
 function shouldRequestMoreNearby() {
