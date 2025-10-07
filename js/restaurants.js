@@ -21,6 +21,7 @@ let visibleNearbyRestaurants = [];
 let rawNearbyRestaurants = [];
 let currentView = 'nearby';
 let isFetchingNearby = false;
+let userLocation = null;
 
 const domRefs = {
   resultsRoot: null,
@@ -214,6 +215,71 @@ function parseCoordinate(value) {
     return Number.isFinite(parsed) ? parsed : NaN;
   }
   return NaN;
+}
+
+function setUserLocation(latitude, longitude) {
+  const lat = parseCoordinate(latitude);
+  const lon = parseCoordinate(longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    userLocation = { latitude: lat, longitude: lon };
+  } else {
+    userLocation = null;
+  }
+}
+
+function clearUserLocation() {
+  userLocation = null;
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function computeHaversineDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth radius in meters
+  const phi1 = toRadians(lat1);
+  const phi2 = toRadians(lat2);
+  const deltaPhi = toRadians(lat2 - lat1);
+  const deltaLambda = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function computeDistanceFromUser(rest) {
+  if (!userLocation) return null;
+  const lat = parseCoordinate(rest.latitude);
+  const lon = parseCoordinate(rest.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return computeHaversineDistanceMeters(userLocation.latitude, userLocation.longitude, lat, lon);
+}
+
+function normalizeRestaurant(item) {
+  const sanitized = sanitizeRestaurant(item);
+  if (!sanitized) return null;
+
+  const normalized = { ...sanitized };
+  const computedDistance = computeDistanceFromUser(sanitized);
+  const providedDistance = getDistanceValue(item);
+  const sanitizedDistance = getDistanceValue(sanitized);
+  const distanceValue = Number.isFinite(computedDistance)
+    ? computedDistance
+    : Number.isFinite(providedDistance)
+      ? providedDistance
+      : Number.isFinite(sanitizedDistance)
+        ? sanitizedDistance
+        : null;
+
+  if (Number.isFinite(distanceValue)) {
+    normalized.distance = distanceValue;
+  } else {
+    delete normalized.distance;
+  }
+
+  return normalized;
 }
 
 function ensureMap() {
@@ -616,7 +682,8 @@ function sortByDistance(items) {
 
 function updateNearbyRestaurants() {
   const list = Array.isArray(rawNearbyRestaurants) ? rawNearbyRestaurants : [];
-  nearbyRestaurants = sortByDistance(list);
+  const normalized = list.map(normalizeRestaurant).filter(Boolean);
+  nearbyRestaurants = sortByDistance(normalized);
 }
 
 function renderRestaurantsList(container, items, emptyMessage) {
@@ -842,6 +909,7 @@ async function loadNearbyRestaurants(container) {
   isFetchingNearby = true;
   renderMessage(targetContainer, 'Requesting your location…');
   clearMap();
+  clearUserLocation();
 
   let position;
   try {
@@ -852,6 +920,7 @@ async function loadNearbyRestaurants(container) {
     rawNearbyRestaurants = [];
     nearbyRestaurants = [];
     visibleNearbyRestaurants = [];
+    clearUserLocation();
     if (err && typeof err.code === 'number' && err.code === 1) {
       renderMessage(targetContainer, 'Location access is required to show nearby restaurants.');
     } else {
@@ -865,6 +934,7 @@ async function loadNearbyRestaurants(container) {
 
   try {
     const { latitude, longitude } = position.coords;
+    setUserLocation(latitude, longitude);
     const city = await reverseGeocodeCity(latitude, longitude);
     const data = await fetchRestaurants({ latitude, longitude, city });
     rawNearbyRestaurants = Array.isArray(data) ? data : [];
@@ -877,6 +947,7 @@ async function loadNearbyRestaurants(container) {
     rawNearbyRestaurants = [];
     nearbyRestaurants = [];
     visibleNearbyRestaurants = [];
+    clearUserLocation();
     const message = err?.message || 'Failed to load restaurants.';
     renderMessage(targetContainer, message);
     renderSavedSection();
