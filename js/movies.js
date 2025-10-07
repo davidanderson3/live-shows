@@ -40,6 +40,10 @@ const DEFAULT_FEED_FILTER_STATE = Object.freeze({
 
 let feedFilterState = { ...DEFAULT_FEED_FILTER_STATE };
 
+const TMDB_DISCOVER_HISTORY_LIMIT = 20;
+const TMDB_DISCOVER_HISTORY_TTL_MS = 15 * 60 * 1000;
+const tmdbDiscoverHistory = new Map();
+
 const domRefs = {
   list: null,
   interestedList: null,
@@ -420,6 +424,7 @@ async function loadPreferences() {
       }
       prefsLoadedFor = key;
       currentPrefs = prefs || {};
+      resetTmdbDiscoverState();
       return currentPrefs;
     })().finally(() => {
       loadingPrefsPromise = null;
@@ -1860,6 +1865,58 @@ function normalizeCreditsMap(raw) {
   return Object.keys(normalized).length ? normalized : null;
 }
 
+function buildTmdbDiscoverKey({ usingProxy }) {
+  const parts = [
+    usingProxy ? 'proxy' : 'direct',
+    feedFilterState.minRating ?? '',
+    feedFilterState.minVotes ?? '',
+    feedFilterState.startYear ?? '',
+    feedFilterState.endYear ?? '',
+    feedFilterState.genreId ?? ''
+  ];
+  return parts.map(value => String(value ?? '').trim()).join('|');
+}
+
+function readTmdbDiscoverState(key) {
+  if (!key) return null;
+  const entry = tmdbDiscoverHistory.get(key);
+  if (!entry) return null;
+  if (entry.lastAttempt && Date.now() - entry.lastAttempt > TMDB_DISCOVER_HISTORY_TTL_MS) {
+    tmdbDiscoverHistory.delete(key);
+    return null;
+  }
+  return { ...entry };
+}
+
+function writeTmdbDiscoverState(key, state) {
+  if (!key || !state) return;
+  const normalizedTotal = Number.isFinite(state.totalPages) && state.totalPages > 0
+    ? state.totalPages
+    : null;
+  const normalizedAllowed = Number.isFinite(state.allowedPages) && state.allowedPages > 0
+    ? state.allowedPages
+    : MAX_DISCOVER_PAGES;
+  const nextPage = Number.isFinite(state.nextPage) && state.nextPage > 0 ? state.nextPage : 1;
+  const payload = {
+    nextPage,
+    allowedPages: Math.max(normalizedAllowed, MAX_DISCOVER_PAGES, nextPage),
+    totalPages: normalizedTotal,
+    exhausted: Boolean(state.exhausted),
+    lastAttempt: Date.now()
+  };
+  tmdbDiscoverHistory.delete(key);
+  tmdbDiscoverHistory.set(key, payload);
+  while (tmdbDiscoverHistory.size > TMDB_DISCOVER_HISTORY_LIMIT) {
+    const oldest = tmdbDiscoverHistory.keys().next().value;
+    if (oldest == null) break;
+    tmdbDiscoverHistory.delete(oldest);
+  }
+}
+
+function resetTmdbDiscoverState() {
+  tmdbDiscoverHistory.clear();
+}
+
 function collectMoviesFromCache(results, suppressedIds) {
   const seen = new Set();
   const collected = [];
@@ -1947,14 +2004,53 @@ async function fetchMoviesFromTmdb({
     return prioritized;
   }
 
-  let page = 1;
-  let totalPages = Infinity;
-  let allowedPages = MAX_DISCOVER_PAGES;
+  const requestKey = buildTmdbDiscoverKey({ usingProxy });
+  const history = readTmdbDiscoverState(requestKey);
+  let page = Math.max(1, history?.nextPage || 1);
+  let allowedPages = Math.max(
+    MAX_DISCOVER_PAGES,
+    Number.isFinite(history?.allowedPages) && history.allowedPages > 0
+      ? history.allowedPages
+      : MAX_DISCOVER_PAGES,
+    page
+  );
+  let totalPages = Number.isFinite(history?.totalPages) && history.totalPages > 0
+    ? history.totalPages
+    : Infinity;
+  let reachedEnd = false;
+  let madeNetworkRequest = false;
+
+  const commitProgress = ({ exhausted } = {}) => {
+    if (!madeNetworkRequest) return;
+    const normalizedTotal = Number.isFinite(totalPages) && totalPages > 0 ? totalPages : null;
+    const payload = {
+      nextPage: Math.max(1, page),
+      allowedPages: Math.max(allowedPages, MAX_DISCOVER_PAGES, page),
+      totalPages: normalizedTotal,
+      exhausted:
+        exhausted != null
+          ? exhausted
+          : (reachedEnd && (normalizedTotal == null ? true : page - 1 >= normalizedTotal))
+    };
+    writeTmdbDiscoverState(requestKey, payload);
+  };
+
+  if (
+    history &&
+    history.exhausted &&
+    Number.isFinite(history.totalPages) &&
+    history.totalPages > 0 &&
+    page > history.totalPages
+  ) {
+    return prioritized.length ? prioritized : applyPriorityOrdering(collected);
+  }
 
   while (page <= allowedPages && page <= totalPages) {
+    const currentPage = page;
     const { results, totalPages: reportedTotal } = usingProxy
-      ? await fetchDiscoverPageFromProxy(page)
-      : await fetchDiscoverPageDirect(apiKey, page);
+      ? await fetchDiscoverPageFromProxy(currentPage)
+      : await fetchDiscoverPageDirect(apiKey, currentPage);
+    madeNetworkRequest = true;
 
     if (Number.isFinite(reportedTotal) && reportedTotal > 0) {
       totalPages = reportedTotal;
@@ -1975,22 +2071,32 @@ async function fetchMoviesFromTmdb({
 
     const feedMovies = applyFeedFilters(prioritized);
     if (feedMovies.length >= minFeedSize) {
+      page = currentPage + 1;
+      commitProgress({ exhausted: false });
       return prioritized;
     }
 
-    if (!pageResults.length && (!Number.isFinite(totalPages) || page >= totalPages)) {
+    if (!pageResults.length && (!Number.isFinite(totalPages) || currentPage >= totalPages)) {
+      reachedEnd = true;
+      page = currentPage + 1;
       break;
     }
 
-    page += 1;
+    page = currentPage + 1;
 
     if (page > allowedPages && allowedPages < MAX_DISCOVER_PAGES_LIMIT) {
       allowedPages = Math.min(
         MAX_DISCOVER_PAGES_LIMIT,
-        allowedPages + INITIAL_DISCOVER_PAGES
+        Math.max(allowedPages + INITIAL_DISCOVER_PAGES, page)
       );
     }
   }
+
+  if (!reachedEnd && madeNetworkRequest && Number.isFinite(totalPages) && totalPages > 0 && page > totalPages) {
+    reachedEnd = true;
+  }
+
+  commitProgress({});
 
   return prioritized.length ? prioritized : applyPriorityOrdering(collected);
 }
