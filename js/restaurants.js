@@ -19,7 +19,6 @@ let isHiddenRestaurantsExpanded = false;
 let nearbyRestaurants = [];
 let visibleNearbyRestaurants = [];
 let rawNearbyRestaurants = [];
-let nearbyFilterHasDistanceData = false;
 let currentView = 'nearby';
 let isFetchingNearby = false;
 
@@ -28,17 +27,8 @@ const domRefs = {
   nearbyContainer: null,
   savedContainer: null,
   hiddenContainer: null,
-  tabButtons: [],
-  distanceSelect: null
+  tabButtons: []
 };
-
-const DEFAULT_RADIUS_MILES = 25;
-let selectedRadiusMiles = DEFAULT_RADIUS_MILES;
-
-function milesToMeters(miles) {
-  if (!Number.isFinite(miles)) return 0;
-  return miles * 1609.34;
-}
 
 function buildRestaurantsUrl(params) {
   const query = params.toString();
@@ -624,91 +614,9 @@ function sortByDistance(items) {
   });
 }
 
-function getRatingValue(rest) {
-  if (!rest || typeof rest !== 'object') return -Infinity;
-
-  const rawRating =
-    typeof rest.rating === 'number'
-      ? rest.rating
-      : typeof rest.rating === 'string'
-        ? Number(rest.rating)
-        : NaN;
-
-  return Number.isFinite(rawRating) ? rawRating : -Infinity;
-}
-
-function getReviewCount(rest) {
-  if (!rest || typeof rest !== 'object') return 0;
-
-  const rawReviews =
-    typeof rest.reviewCount === 'number'
-      ? rest.reviewCount
-      : typeof rest.reviewCount === 'string'
-        ? Number(rest.reviewCount)
-        : NaN;
-
-  return Number.isFinite(rawReviews) && rawReviews >= 0 ? rawReviews : 0;
-}
-
-function sortByRating(items) {
-  return [...items].sort((a, b) => {
-    const ratingA = getRatingValue(a);
-    const ratingB = getRatingValue(b);
-
-    if (ratingA === ratingB) {
-      const reviewsA = getReviewCount(a);
-      const reviewsB = getReviewCount(b);
-
-      if (reviewsA === reviewsB) {
-        const nameA = typeof a?.name === 'string' ? a.name.toLowerCase() : '';
-        const nameB = typeof b?.name === 'string' ? b.name.toLowerCase() : '';
-        return nameA.localeCompare(nameB);
-      }
-
-      return reviewsB - reviewsA;
-    }
-
-    return ratingB - ratingA;
-  });
-}
-
-function filterByDistance(items, maxDistance) {
-  if (!Array.isArray(items) || !items.length) {
-    return { filtered: [], hadDistanceData: false };
-  }
-  if (!Number.isFinite(maxDistance) || maxDistance <= 0) {
-    return { filtered: items, hadDistanceData: false };
-  }
-
-  let hadDistanceData = false;
-  const filtered = items.filter(item => {
-    const distance = getDistanceValue(item);
-    if (!Number.isFinite(distance)) {
-      return false;
-    }
-    hadDistanceData = true;
-    return distance <= maxDistance;
-  });
-
-  if (!hadDistanceData) {
-    return { filtered: items, hadDistanceData: false };
-  }
-
-  return { filtered, hadDistanceData: true };
-}
-
-function getSelectedRadiusMeters() {
-  return milesToMeters(selectedRadiusMiles);
-}
-
-function updateNearbyFromRadius() {
-  const { filtered, hadDistanceData } = filterByDistance(
-    rawNearbyRestaurants,
-    getSelectedRadiusMeters()
-  );
-  nearbyFilterHasDistanceData = hadDistanceData;
-  const sorted = sortByRating(filtered);
-  nearbyRestaurants = sorted;
+function updateNearbyRestaurants() {
+  const list = Array.isArray(rawNearbyRestaurants) ? rawNearbyRestaurants : [];
+  nearbyRestaurants = sortByDistance(list);
 }
 
 function renderRestaurantsList(container, items, emptyMessage) {
@@ -737,24 +645,12 @@ function renderRestaurantsList(container, items, emptyMessage) {
   container.appendChild(grid);
 }
 
-function formatMilesLabel(miles) {
-  if (!Number.isFinite(miles) || miles <= 0) return '';
-  const isInteger = Number.isInteger(miles);
-  const display = isInteger ? miles : Number.parseFloat(miles.toFixed(1));
-  const unit = Math.abs(miles - 1) < 1e-9 ? 'mile' : 'miles';
-  return `${display} ${unit}`;
-}
-
 function renderNearbySection() {
   const container = domRefs.nearbyContainer;
   if (!container) return;
   if (isFetchingNearby && !nearbyRestaurants.length) return;
   visibleNearbyRestaurants = nearbyRestaurants.filter(rest => !isHidden(rest.id));
-  const radiusLabel = formatMilesLabel(selectedRadiusMiles);
-  const emptyMessage =
-    nearbyFilterHasDistanceData && radiusLabel
-      ? `No restaurants found within ${radiusLabel}.`
-      : 'No restaurants found.';
+  const emptyMessage = 'No restaurants found.';
   renderRestaurantsList(container, visibleNearbyRestaurants, emptyMessage);
 }
 
@@ -843,15 +739,6 @@ function updateMapForCurrentView() {
   } else {
     updateMap(visibleNearbyRestaurants);
   }
-}
-
-function handleDistanceChange(event) {
-  const value = Number(event?.target?.value);
-  if (!Number.isFinite(value) || value <= 0) return;
-  if (value === selectedRadiusMiles) return;
-  selectedRadiusMiles = value;
-  updateNearbyFromRadius();
-  renderAll();
 }
 
 function renderAll() {
@@ -981,7 +868,7 @@ async function loadNearbyRestaurants(container) {
     const city = await reverseGeocodeCity(latitude, longitude);
     const data = await fetchRestaurants({ latitude, longitude, city });
     rawNearbyRestaurants = Array.isArray(data) ? data : [];
-    updateNearbyFromRadius();
+    updateNearbyRestaurants();
     isFetchingNearby = false;
     renderAll();
   } catch (err) {
@@ -1010,17 +897,6 @@ export async function initRestaurantsPanel() {
   domRefs.savedContainer = document.getElementById('restaurantsSaved');
   domRefs.hiddenContainer = document.getElementById('restaurantsHiddenSection');
   domRefs.tabButtons = Array.from(resultsContainer.querySelectorAll('.restaurants-tab'));
-  domRefs.distanceSelect = document.getElementById('restaurantsDistanceSelect');
-
-  if (domRefs.distanceSelect) {
-    const initialValue = Number(domRefs.distanceSelect.value);
-    if (Number.isFinite(initialValue) && initialValue > 0) {
-      selectedRadiusMiles = initialValue;
-    } else {
-      domRefs.distanceSelect.value = String(selectedRadiusMiles);
-    }
-    domRefs.distanceSelect.addEventListener('change', handleDistanceChange);
-  }
 
   loadStoredState();
 
