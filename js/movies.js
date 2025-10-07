@@ -46,6 +46,7 @@ const domRefs = {
   watchedSection: null,
   watchedSort: null,
   feedControls: null,
+  feedStatus: null,
   feedMinRating: null,
   feedMinVotes: null,
   feedStartYear: null,
@@ -70,6 +71,51 @@ const handlers = {
   handleKeydown: null,
   handleChange: null
 };
+
+const STATUS_TONE_CLASSES = Object.freeze({
+  info: 'movie-status--info',
+  success: 'movie-status--success',
+  warning: 'movie-status--warning',
+  error: 'movie-status--error'
+});
+
+let loadAttemptCounter = 0;
+
+function formatTimestamp(value) {
+  if (!Number.isFinite(value)) return '';
+  try {
+    return new Date(value).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch (_) {
+    return '';
+  }
+}
+
+function summarizeError(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (typeof err.message === 'string' && err.message.trim()) {
+    return err.message.trim();
+  }
+  if (typeof err.status === 'number') {
+    return `Request failed with status ${err.status}`;
+  }
+  return 'Unknown error';
+}
+
+function updateFeedStatus(message, { tone = 'info' } = {}) {
+  const statusEl = domRefs.feedStatus;
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  Object.values(STATUS_TONE_CLASSES).forEach(cls => {
+    statusEl.classList.remove(cls);
+  });
+  const toneClass = STATUS_TONE_CLASSES[tone] || STATUS_TONE_CLASSES.info;
+  statusEl.classList.add(toneClass);
+}
 
 function clampUserRating(value) {
   if (!Number.isFinite(value)) return null;
@@ -408,8 +454,9 @@ function resolveApiKey() {
 
 function getTmdbProxyEndpoint() {
   if (proxyDisabled) return '';
-  if (typeof window !== 'undefined' && window.tmdbProxyEndpoint) {
-    return window.tmdbProxyEndpoint;
+  if (typeof window !== 'undefined' && 'tmdbProxyEndpoint' in window) {
+    const value = window.tmdbProxyEndpoint;
+    return typeof value === 'string' ? value : '';
   }
   return DEFAULT_TMDB_PROXY_ENDPOINT;
 }
@@ -1074,13 +1121,25 @@ function pruneSuppressedMovies() {
 
 async function requestAdditionalMovies() {
   const now = Date.now();
-  if (refillInProgress) return;
-  if (now - lastRefillAttempt < REFILL_COOLDOWN_MS) return;
+  if (refillInProgress) {
+    const started = formatTimestamp(lastRefillAttempt);
+    const label = started ? ` (started at ${started})` : '';
+    updateFeedStatus(`Movie request already in progress${label}.`, { tone: 'info' });
+    return;
+  }
+  if (now - lastRefillAttempt < REFILL_COOLDOWN_MS) {
+    const waitMs = Math.max(0, REFILL_COOLDOWN_MS - (now - lastRefillAttempt));
+    const waitSeconds = Math.ceil(waitMs / 1000);
+    updateFeedStatus(`Waiting ${waitSeconds}s before requesting more movies...`, {
+      tone: 'info'
+    });
+    return;
+  }
   refillInProgress = true;
   lastRefillAttempt = now;
   feedExhausted = false;
   try {
-    await loadMovies();
+    await loadMovies({ attemptStart: now });
   } finally {
     refillInProgress = false;
     renderFeed();
@@ -1094,15 +1153,23 @@ function renderFeed() {
   if (!currentMovies.length) {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more movies...</em>';
+      updateFeedStatus('Waiting for movies from TMDB...', { tone: 'info' });
       return;
     }
     if (feedExhausted) {
       listEl.innerHTML = hasActiveFeedFilters()
         ? '<em>No movies match the current filters.</em>'
         : '<em>No movies found.</em>';
+      updateFeedStatus(
+        hasActiveFeedFilters()
+          ? 'TMDB did not return movies that match your filters.'
+          : 'TMDB did not return any movies. Try again later.',
+        { tone: 'warning' }
+      );
       return;
     }
     listEl.innerHTML = '<em>Loading more movies...</em>';
+    updateFeedStatus('Requesting the first batch of movies...', { tone: 'info' });
     requestAdditionalMovies();
     return;
   }
@@ -1112,9 +1179,16 @@ function renderFeed() {
   if (!availableMovies.length) {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more movies...</em>';
+      updateFeedStatus('All current results are hidden; waiting for new movies...', {
+        tone: 'info'
+      });
       return;
     }
     listEl.innerHTML = '<em>Loading more movies...</em>';
+    updateFeedStatus(
+      'All fetched movies are hidden by saved statuses. Looking for fresh titles...',
+      { tone: 'warning' }
+    );
     requestAdditionalMovies();
     return;
   }
@@ -1124,15 +1198,31 @@ function renderFeed() {
   if (!filteredMovies.length) {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more movies...</em>';
+      updateFeedStatus('Filters removed the current batch; waiting for more movies...', {
+        tone: 'info'
+      });
       return;
     }
     if (feedExhausted) {
       listEl.innerHTML = hasActiveFeedFilters()
         ? '<em>No movies match the current filters.</em>'
         : '<em>No movies found.</em>';
+      updateFeedStatus(
+        hasActiveFeedFilters()
+          ? 'Filters are hiding every movie that is currently available.'
+          : 'TMDB did not return any additional movies.',
+        { tone: 'warning' }
+      );
       return;
     }
     listEl.innerHTML = '<em>Loading more movies...</em>';
+    const hiddenByFilters = availableMovies.length;
+    updateFeedStatus(
+      hiddenByFilters
+        ? `Filters are hiding ${hiddenByFilters} movie${hiddenByFilters === 1 ? '' : 's'}; requesting more options...`
+        : 'Filters removed the current batch; requesting more movies...',
+      { tone: 'warning' }
+    );
     requestAdditionalMovies();
     return;
   }
@@ -1193,6 +1283,12 @@ function renderFeed() {
 
   listEl.innerHTML = '';
   listEl.appendChild(ul);
+  updateFeedStatus(
+    `Showing ${filteredMovies.length} movie${filteredMovies.length === 1 ? '' : 's'} (updated ${formatTimestamp(
+      Date.now()
+    )}).`,
+    { tone: 'success' }
+  );
 }
 
 function renderInterestedList() {
@@ -1638,7 +1734,7 @@ async function fetchGenreMapFromProxy() {
   }
 }
 
-async function loadMovies() {
+async function loadMovies({ attemptStart } = {}) {
   const listEl = domRefs.list;
   if (!listEl) return;
 
@@ -1666,6 +1762,9 @@ async function loadMovies() {
 
   if (!usingProxy && !apiKey) {
     listEl.innerHTML = '<em>TMDB API key not provided.</em>';
+    updateFeedStatus('TMDB API key not provided. Enter a key or enable the proxy to load movies.', {
+      tone: 'warning'
+    });
     return;
   }
 
@@ -1676,6 +1775,16 @@ async function loadMovies() {
       persistApiKey(apiKey);
     }
   }
+
+  const attemptNumber = ++loadAttemptCounter;
+  const startedLabel = formatTimestamp(
+    Number.isFinite(attemptStart) ? attemptStart : Date.now()
+  );
+  const sourceLabel = usingProxy ? 'TMDB proxy' : 'TMDB API';
+  updateFeedStatus(
+    `Attempt ${attemptNumber} started${startedLabel ? ` at ${startedLabel}` : ''} via ${sourceLabel}...`,
+    { tone: 'info' }
+  );
 
   listEl.innerHTML = '<em>Loading...</em>';
   try {
@@ -1688,13 +1797,29 @@ async function loadMovies() {
     updateFeedFilterInputsFromState();
     feedExhausted = !currentMovies.length;
     refreshUI();
+    const availableCount = getFeedMovies(currentMovies).length;
+    const completedLabel = formatTimestamp(Date.now());
+    updateFeedStatus(
+      `Attempt ${attemptNumber} completed${completedLabel ? ` at ${completedLabel}` : ''} via ${sourceLabel}: ${
+        movies.length
+      } fetched, ${availableCount} available after filters.`,
+      { tone: availableCount ? 'success' : 'warning' }
+    );
   } catch (err) {
     if (usingProxy) {
       console.warn('TMDB proxy unavailable, falling back to direct API', err);
+      updateFeedStatus(
+        `Attempt ${attemptNumber} via TMDB proxy failed: ${summarizeProxyError(err)}. Trying direct API...`,
+        { tone: 'warning' }
+      );
       disableTmdbProxy();
       if (!apiKey) {
         listEl.innerHTML =
           '<em>TMDB proxy is unavailable. Please enter your TMDB API key to continue.</em>';
+        updateFeedStatus(
+          'TMDB proxy is unavailable and no API key is configured. Enter a TMDB API key to continue.',
+          { tone: 'error' }
+        );
         return;
       }
       await loadMovies();
@@ -1702,6 +1827,10 @@ async function loadMovies() {
     }
     console.error('Failed to load movies', err);
     listEl.textContent = 'Failed to load movies.';
+    updateFeedStatus(
+      `Attempt ${attemptNumber} via ${sourceLabel} failed: ${summarizeError(err)}.`,
+      { tone: 'error' }
+    );
   }
 }
 
@@ -1720,11 +1849,14 @@ export async function initMoviesPanel() {
   domRefs.watchedSection = document.getElementById('watchedMoviesSection');
   domRefs.watchedSort = document.getElementById('watchedMoviesSort');
   domRefs.feedControls = document.getElementById('movieFeedControls');
+  domRefs.feedStatus = document.getElementById('movieStatus');
   domRefs.feedMinRating = document.getElementById('movieFilterMinRating');
   domRefs.feedMinVotes = document.getElementById('movieFilterMinVotes');
   domRefs.feedStartYear = document.getElementById('movieFilterStartYear');
   domRefs.feedEndYear = document.getElementById('movieFilterEndYear');
   domRefs.feedGenre = document.getElementById('movieFilterGenre');
+
+  loadAttemptCounter = 0;
 
   currentPrefs = await loadPreferences();
 
