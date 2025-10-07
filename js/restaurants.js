@@ -683,10 +683,24 @@ function sortByDistance(items) {
   });
 }
 
+function getReviewCountValue(rest) {
+  if (!rest || typeof rest !== 'object') return 0;
+
+  const raw =
+    typeof rest.reviewCount === 'number'
+      ? rest.reviewCount
+      : typeof rest.reviewCount === 'string'
+        ? Number(rest.reviewCount)
+        : NaN;
+
+  return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+}
+
 function updateNearbyRestaurants() {
   const list = Array.isArray(rawNearbyRestaurants) ? rawNearbyRestaurants : [];
   const normalized = list.map(normalizeRestaurant).filter(Boolean);
-  nearbyRestaurants = sortByDistance(normalized);
+  const filtered = normalized.filter(rest => getReviewCountValue(rest) >= 5);
+  nearbyRestaurants = sortByDistance(filtered);
 }
 
 function renderRestaurantsList(container, items, emptyMessage) {
