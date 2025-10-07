@@ -40,6 +40,7 @@ let currentSuggestions = [];
 let showsEmptyReason = null;
 
 const SHOWS_CONFIG_STORAGE_KEY = 'showsConfigV1';
+const MAX_ARTIST_SCAN_LIMIT = 200;
 const DEFAULT_SHOWS_CONFIG = {
   radiusMiles: 300,
   artistLimit: 10,
@@ -54,7 +55,7 @@ function normalizeShowsConfig(config = {}) {
 
   const artistValue = Number.parseInt(config.artistLimit, 10);
   const artistLimit = Number.isFinite(artistValue) && artistValue > 0
-    ? Math.min(Math.max(artistValue, 1), 50)
+    ? Math.min(Math.max(artistValue, 1), MAX_ARTIST_SCAN_LIMIT)
     : DEFAULT_SHOWS_CONFIG.artistLimit;
 
   const includeSuggestions =
@@ -193,6 +194,67 @@ const SAMPLE_PREVIEW_SHOWS = [
 ];
 
 const SPOTIFY_SUGGESTION_LIMIT = 10;
+const SPOTIFY_TOP_ARTISTS_PAGE_SIZE = 50;
+
+async function fetchSpotifyTopArtists(token, totalLimit) {
+  if (!token) {
+    return [];
+  }
+
+  const limit = Number.isFinite(totalLimit) && totalLimit > 0 ? totalLimit : 0;
+  if (limit === 0) {
+    return [];
+  }
+
+  const artists = [];
+  let offset = 0;
+  let hasNext = true;
+
+  while (artists.length < limit && hasNext) {
+    const remaining = limit - artists.length;
+    const pageSize = Math.min(SPOTIFY_TOP_ARTISTS_PAGE_SIZE, remaining);
+    const url = new URL('https://api.spotify.com/v1/me/top/artists');
+    url.searchParams.set('limit', String(pageSize));
+    url.searchParams.set('offset', String(offset));
+
+    let res;
+    try {
+      res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (err) {
+      throw err;
+    }
+
+    if (res.status === 401) {
+      const error = new Error('Spotify HTTP 401');
+      error.status = 401;
+      throw error;
+    }
+
+    if (!res.ok) {
+      const error = new Error(`Spotify HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    artists.push(...items);
+
+    if (!data?.next || items.length < pageSize) {
+      hasNext = false;
+    }
+
+    offset += items.length;
+
+    if (items.length === 0) {
+      break;
+    }
+  }
+
+  return artists.slice(0, limit);
+}
 
 function uniqueNonEmpty(values) {
   if (!Array.isArray(values)) return [];
@@ -1151,34 +1213,32 @@ export async function initShowsPanel() {
 
     listEl.innerHTML = '<em>Loading...</em>';
     try {
-      const artistRes = await fetch(
-        `https://api.spotify.com/v1/me/top/artists?limit=${artistLimit}`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
+      let artists = [];
+      try {
+        artists = await fetchSpotifyTopArtists(token, artistLimit);
+      } catch (err) {
+        if (err?.status === 401) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem('spotifyToken');
+          }
+          updateSpotifyStatus();
+          renderShowsPreview(
+            listEl,
+            radiusMiles,
+            'Spotify session expired. <strong>Login again</strong> to refresh your personalized shows.'
+          );
+          if (interestedListEl) {
+            interestedListEl.innerHTML = '';
+            const prompt = document.createElement('p');
+            prompt.className = 'shows-empty';
+            prompt.textContent = 'Connect Spotify to start saving live music events.';
+            interestedListEl.appendChild(prompt);
+          }
+          return;
         }
-      );
-      if (artistRes.status === 401) {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.removeItem('spotifyToken');
-        }
-        updateSpotifyStatus();
-        renderShowsPreview(
-          listEl,
-          radiusMiles,
-          'Spotify session expired. <strong>Login again</strong> to refresh your personalized shows.'
-        );
-        if (interestedListEl) {
-          interestedListEl.innerHTML = '';
-          const prompt = document.createElement('p');
-          prompt.className = 'shows-empty';
-          prompt.textContent = 'Connect Spotify to start saving live music events.';
-          interestedListEl.appendChild(prompt);
-        }
-        return;
+        throw err;
       }
-      if (!artistRes.ok) throw new Error(`Spotify HTTP ${artistRes.status}`);
-      const artistData = await artistRes.json();
-      const artists = artistData.items || [];
+
       if (artists.length === 0) {
         currentShows = [];
         currentSuggestions = [];

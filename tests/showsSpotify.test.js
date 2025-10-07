@@ -205,6 +205,79 @@ describe('initShowsPanel', () => {
     expect(document.querySelectorAll('.shows-suggestion').length).toBe(1);
   });
 
+  it('paginates through Spotify top artists when limit exceeds one page', async () => {
+    const topArtistPages = [
+      {
+        items: Array.from({ length: 50 }, (_, i) => ({ name: `Artist ${i}`, id: `artist${i}` })),
+        next: 'page2'
+      },
+      {
+        items: Array.from({ length: 5 }, (_, i) => ({ name: `Artist ${i + 50}`, id: `artist${i + 50}` })),
+        next: null
+      }
+    ];
+    let topArtistIndex = 0;
+    let mode = 'initial';
+
+    fetch.mockImplementation(url => {
+      const href = String(url);
+      if (href.includes('/api/spotify-client-id')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ clientId: 'cid', hasTicketmasterKey: true })
+        });
+      }
+      if (href.includes('api.spotify.com/v1/me/top/artists')) {
+        if (mode === 'initial') {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ items: [{ name: 'Initial', id: 'initial' }], next: null })
+          });
+        }
+        const expectedOffset = topArtistIndex * 50;
+        const expectedLimit = topArtistIndex === 0 ? 'limit=50' : 'limit=5';
+        expect(href).toContain(expectedLimit);
+        expect(href).toContain(`offset=${expectedOffset}`);
+        const response = topArtistPages[topArtistIndex] || { items: [], next: null };
+        topArtistIndex += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => response
+        });
+      }
+      if (href.includes('/api/ticketmaster')) {
+        return Promise.resolve({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    localStorage.setItem('spotifyToken', 'token');
+
+    await initShowsPanel();
+
+    await flush();
+    await flush();
+
+    mode = 'paging';
+    topArtistIndex = 0;
+
+    const artistLimitInput = document.getElementById('showsArtistLimit');
+    artistLimitInput.value = '55';
+    artistLimitInput.dispatchEvent(new window.Event('change'));
+
+    fetch.mockClear();
+
+    document.getElementById('ticketmasterDiscoverBtn')._showsClickHandler();
+
+    await flush();
+    await flush();
+
+    const artistCalls = fetch.mock.calls.filter(call =>
+      String(call[0]).includes('api.spotify.com/v1/me/top/artists')
+    );
+    expect(artistCalls).toHaveLength(2);
+  });
+
   it('only shows events within 300 miles of the user', async () => {
     fetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
