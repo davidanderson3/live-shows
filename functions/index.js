@@ -1,38 +1,14 @@
 const functions = require('firebase-functions');
 
 const { readCachedResponse, writeCachedResponse } = require('../shared/cache');
-const { normalizeRecipeQuery, recipeCacheKeyParts } = require('../shared/recipes');
 
 const DEFAULT_REGION = 'us-central1';
 const TMDB_BASE_URL = 'https://api.themoviedb.org';
-const SPOONACULAR_BASE_URL = 'https://api.spoonacular.com/recipes/complexSearch';
 const TMDB_CACHE_COLLECTION = 'tmdbCache';
 const TMDB_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
-const RECIPE_CACHE_COLLECTION = 'recipeCache';
-const RECIPE_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
 const YELP_CACHE_COLLECTION = 'yelpCache';
 const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
-
-async function readRecipeCache(query) {
-  return readCachedResponse(
-    RECIPE_CACHE_COLLECTION,
-    recipeCacheKeyParts(query),
-    RECIPE_CACHE_TTL_MS
-  );
-}
-
-async function writeRecipeCache(query, status, contentType, body) {
-  await writeCachedResponse(RECIPE_CACHE_COLLECTION, recipeCacheKeyParts(query), {
-    status,
-    contentType,
-    body,
-    metadata: {
-      query,
-      normalizedQuery: normalizeRecipeQuery(query)
-    }
-  });
-}
 
 function normalizeCoordinate(value) {
   if (typeof value === 'number') {
@@ -232,14 +208,6 @@ function getTmdbApiKey() {
   const fromEnv = process.env.TMDB_API_KEY;
   if (fromEnv) return fromEnv;
   const fromConfig = functions.config()?.tmdb?.key;
-  if (fromConfig) return fromConfig;
-  return null;
-}
-
-function getSpoonacularApiKey() {
-  const fromEnv = process.env.SPOONACULAR_KEY;
-  if (fromEnv) return fromEnv;
-  const fromConfig = functions.config()?.spoonacular?.key;
   if (fromConfig) return fromConfig;
   return null;
 }
@@ -453,76 +421,5 @@ exports.restaurantsProxy = functions
     } catch (err) {
       console.error('Restaurants proxy failed', err);
       res.status(500).json({ error: 'restaurants_proxy_failed' });
-    }
-  });
-
-exports.spoonacularProxy = functions
-  .region(DEFAULT_REGION)
-  .https.onRequest(async (req, res) => {
-    withCors(res);
-
-    if (req.method === 'OPTIONS') {
-      res.status(204).send('');
-      return;
-    }
-
-    if (req.method !== 'GET') {
-      res.status(405).json({ error: 'method_not_allowed' });
-      return;
-    }
-
-    const rawQuery = resolveSingle(req.query?.query);
-    const query = typeof rawQuery === 'string' ? rawQuery.trim() : '';
-    if (!query) {
-      res.status(400).json({ error: 'missing_query' });
-      return;
-    }
-
-    const rawOverrideKey = resolveSingle(req.query?.apiKey || req.query?.api_key);
-    const overrideKey = typeof rawOverrideKey === 'string' ? rawOverrideKey.trim() : '';
-    const apiKey = overrideKey || getSpoonacularApiKey();
-
-    if (!apiKey) {
-      console.error('Spoonacular API key missing for proxy request');
-      res.status(500).json({ error: 'spoonacular_key_not_configured' });
-      return;
-    }
-
-    const params = new URLSearchParams({
-      query,
-      number: '50',
-      offset: '0',
-      addRecipeInformation: 'true',
-      addRecipeNutrition: 'true',
-      fillIngredients: 'true',
-      apiKey
-    });
-
-    const cached = await readRecipeCache(query);
-    if (cached) {
-      res.status(cached.status);
-      res.type(cached.contentType);
-      res.send(cached.body);
-      return;
-    }
-
-    try {
-      const spoonacularResponse = await fetch(`${SPOONACULAR_BASE_URL}?${params.toString()}`, {
-        headers: {
-          Accept: 'application/json'
-        }
-      });
-
-      const payload = await spoonacularResponse.text();
-      const contentType = spoonacularResponse.headers.get('content-type') || 'application/json';
-      if (spoonacularResponse.ok) {
-        await writeRecipeCache(query, spoonacularResponse.status, contentType, payload);
-      }
-      res.status(spoonacularResponse.status);
-      res.type(contentType);
-      res.send(payload);
-    } catch (err) {
-      console.error('Spoonacular proxy failed', err);
-      res.status(500).json({ error: 'spoonacular_proxy_failed' });
     }
   });
