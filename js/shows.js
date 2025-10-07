@@ -192,49 +192,135 @@ const SAMPLE_PREVIEW_SHOWS = [
   })
 ];
 
-async function fetchSpotifySuggestions(token, artists) {
-  if (!token || !Array.isArray(artists) || artists.length === 0) {
-    return [];
+const SPOTIFY_SUGGESTION_LIMIT = 10;
+
+function uniqueNonEmpty(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
   }
+  return result;
+}
 
-  const seedIds = artists
-    .map(artist => artist?.id)
-    .filter(Boolean)
-    .slice(0, 5);
-
-  if (!seedIds.length) {
+async function requestSpotifyRecommendations(token, { artistSeeds = [], genreSeeds = [] } = {}) {
+  if (!token || (!artistSeeds.length && !genreSeeds.length)) {
     return [];
   }
 
   const url = new URL('https://api.spotify.com/v1/recommendations');
-  url.searchParams.set('limit', '4');
-  url.searchParams.set('seed_artists', seedIds.join(','));
+  url.searchParams.set('limit', String(SPOTIFY_SUGGESTION_LIMIT));
+  url.searchParams.set('market', 'from_token');
+  if (artistSeeds.length) {
+    url.searchParams.set('seed_artists', artistSeeds.join(','));
+  }
+  if (genreSeeds.length) {
+    url.searchParams.set('seed_genres', genreSeeds.join(','));
+  }
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (err) {
+    console.warn('Failed to reach Spotify recommendations', err);
+    return [];
+  }
+
+  if (res.status === 400 || res.status === 422) {
+    return [];
+  }
 
   if (!res.ok) {
     throw new Error(`Spotify suggestions HTTP ${res.status}`);
   }
 
-  const data = await res.json();
-  const tracks = Array.isArray(data?.tracks) ? data.tracks.slice(0, 4) : [];
+  try {
+    const data = await res.json();
+    return Array.isArray(data?.tracks) ? data.tracks : [];
+  } catch (err) {
+    console.warn('Failed to parse Spotify recommendations', err);
+    return [];
+  }
+}
 
-  return tracks.map(track => ({
-    id: track?.id || track?.uri || track?.name || '',
-    name: track?.name || 'Spotify recommendation',
-    artists: Array.isArray(track?.artists)
-      ? track.artists
-          .map(a => a?.name)
-          .filter(Boolean)
-          .join(', ')
-      : '',
-    url: track?.external_urls?.spotify || '',
-    image: Array.isArray(track?.album?.images)
-      ? (track.album.images.find(img => img?.width >= 200) || track.album.images[0])?.url || ''
-      : ''
-  }));
+function formatSpotifySuggestions(tracks) {
+  if (!Array.isArray(tracks) || !tracks.length) {
+    return [];
+  }
+  const seen = new Set();
+  const suggestions = [];
+  for (const track of tracks) {
+    const id = track?.id || track?.uri || track?.name || '';
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    suggestions.push({
+      id,
+      name: track?.name || 'Spotify recommendation',
+      artists: Array.isArray(track?.artists)
+        ? track.artists
+            .map(a => a?.name)
+            .filter(Boolean)
+            .join(', ')
+        : '',
+      url: track?.external_urls?.spotify || '',
+      image: Array.isArray(track?.album?.images)
+        ? (track.album.images.find(img => img?.width >= 200) || track.album.images[0])?.url || ''
+        : ''
+    });
+    if (suggestions.length >= SPOTIFY_SUGGESTION_LIMIT) {
+      break;
+    }
+  }
+  return suggestions;
+}
+
+async function fetchSpotifySuggestions(token, artists) {
+  if (!token || !Array.isArray(artists) || artists.length === 0) {
+    return [];
+  }
+
+  const artistSeeds = uniqueNonEmpty(artists.map(artist => artist?.id));
+  const genreSeeds = uniqueNonEmpty(
+    artists.flatMap(artist => {
+      if (!Array.isArray(artist?.genres)) return [];
+      return artist.genres
+        .map(genre => (typeof genre === 'string' ? genre.trim().toLowerCase() : ''))
+        .filter(Boolean);
+    })
+  );
+
+  const attempts = [];
+  if (artistSeeds.length) {
+    attempts.push({ artistSeeds: artistSeeds.slice(0, 5), genreSeeds: [] });
+  }
+  if (artistSeeds.length && genreSeeds.length) {
+    const artistCount = Math.min(3, artistSeeds.length);
+    const remaining = 5 - artistCount;
+    attempts.push({
+      artistSeeds: artistSeeds.slice(0, artistCount),
+      genreSeeds: genreSeeds.slice(0, Math.min(remaining, genreSeeds.length))
+    });
+  }
+  if (genreSeeds.length) {
+    attempts.push({ artistSeeds: [], genreSeeds: genreSeeds.slice(0, 5) });
+  }
+
+  for (const attempt of attempts) {
+    const tracks = await requestSpotifyRecommendations(token, attempt);
+    if (tracks.length) {
+      return formatSpotifySuggestions(tracks);
+    }
+  }
+
+  return [];
 }
 
 const TICKETMASTER_CACHE_STORAGE_KEY = 'ticketmasterCacheV1';

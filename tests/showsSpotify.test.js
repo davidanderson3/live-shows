@@ -159,6 +159,52 @@ describe('initShowsPanel', () => {
     });
   });
 
+  it('falls back to genre-based Spotify seeds when artist recommendations are empty', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            { name: 'Artist One', id: 'artist1', genres: ['synthwave', 'electronic'] },
+            { name: 'Artist Two', id: 'artist2', genres: ['indie pop'] }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ tracks: [] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tracks: [
+            {
+              id: 'track1',
+              name: 'New Song',
+              artists: [{ name: 'Fresh Artist' }],
+              external_urls: { spotify: 'https://spotify.test/track1' },
+              album: { images: [] }
+            }
+          ]
+        })
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+
+    await flush();
+    await flush();
+    await flush();
+
+    const recommendationCalls = fetch.mock.calls.filter(call =>
+      String(call[0]).includes('api.spotify.com/v1/recommendations')
+    );
+    expect(recommendationCalls.length).toBe(2);
+    expect(recommendationCalls[0][0]).toContain('seed_artists=');
+    expect(recommendationCalls[1][0]).toContain('seed_genres=');
+    expect(document.querySelectorAll('.shows-suggestion').length).toBe(1);
+  });
+
   it('only shows events within 300 miles of the user', async () => {
     fetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
