@@ -440,7 +440,7 @@ app.get('/api/spoonacular', async (req, res) => {
   const apiUrl =
     `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(
       query
-    )}&number=50&offset=0&addRecipeInformation=true&apiKey=${apiKey}`;
+    )}&number=50&offset=0&addRecipeInformation=true&addRecipeNutrition=true&fillIngredients=true&apiKey=${apiKey}`;
   try {
     const apiRes = await fetch(apiUrl);
     const text = await apiRes.text();

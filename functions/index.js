@@ -493,6 +493,8 @@ exports.spoonacularProxy = functions
       number: '50',
       offset: '0',
       addRecipeInformation: 'true',
+      addRecipeNutrition: 'true',
+      fillIngredients: 'true',
       apiKey
     });
 
