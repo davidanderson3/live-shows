@@ -655,6 +655,18 @@ button:hover {
   color: #5a6f63;
 }
 
+.shows-spotify-footer {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.shows-spotify-footer #spotifyTokenBtn {
+  margin: 0;
+}
+
 .shows-grid {
   list-style: none;
   display: grid;
