@@ -15,9 +15,11 @@ const STORAGE_KEYS = {
 
 let savedRestaurants = [];
 let hiddenRestaurants = [];
+let isHiddenRestaurantsExpanded = false;
 let nearbyRestaurants = [];
 let visibleNearbyRestaurants = [];
 let rawNearbyRestaurants = [];
+let nearbyFilterHasDistanceData = false;
 let currentView = 'nearby';
 let isFetchingNearby = false;
 
@@ -623,15 +625,36 @@ function sortByDistance(items) {
 }
 
 function filterByDistance(items, maxDistance) {
-  if (!Array.isArray(items) || !items.length) return [];
-  if (!Number.isFinite(maxDistance) || maxDistance <= 0) return items;
+  if (!Array.isArray(items) || !items.length) {
+    return { filtered: [], hadDistanceData: false };
+  }
+  if (!Number.isFinite(maxDistance) || maxDistance <= 0) {
+    return { filtered: items, hadDistanceData: false };
+  }
 
   const nearby = items.filter(item => {
     const distance = getDistanceValue(item);
     return Number.isFinite(distance) && distance <= maxDistance;
+  let hadDistanceData = false;
+  const filtered = items.filter(item => {
+    const distance =
+      typeof item.distance === 'number'
+        ? item.distance
+        : typeof item.distance === 'string'
+          ? Number.parseFloat(item.distance)
+          : NaN;
+    if (!Number.isFinite(distance)) {
+      return false;
+    }
+    hadDistanceData = true;
+    return distance <= maxDistance;
   });
 
-  return nearby.length ? nearby : items;
+  if (!hadDistanceData) {
+    return { filtered: items, hadDistanceData: false };
+  }
+
+  return { filtered, hadDistanceData: true };
 }
 
 function getSelectedRadiusMeters() {
@@ -641,6 +664,12 @@ function getSelectedRadiusMeters() {
 function updateNearbyFromRadius() {
   const filtered = filterByDistance(rawNearbyRestaurants, getSelectedRadiusMeters());
   const sorted = sortByDistance(filtered);
+  const { filtered, hadDistanceData } = filterByDistance(
+    rawNearbyRestaurants,
+    getSelectedRadiusMeters()
+  );
+  nearbyFilterHasDistanceData = hadDistanceData;
+  const sorted = sortByRating(filtered);
   nearbyRestaurants = sorted;
 }
 
@@ -670,12 +699,25 @@ function renderRestaurantsList(container, items, emptyMessage) {
   container.appendChild(grid);
 }
 
+function formatMilesLabel(miles) {
+  if (!Number.isFinite(miles) || miles <= 0) return '';
+  const isInteger = Number.isInteger(miles);
+  const display = isInteger ? miles : Number.parseFloat(miles.toFixed(1));
+  const unit = Math.abs(miles - 1) < 1e-9 ? 'mile' : 'miles';
+  return `${display} ${unit}`;
+}
+
 function renderNearbySection() {
   const container = domRefs.nearbyContainer;
   if (!container) return;
   if (isFetchingNearby && !nearbyRestaurants.length) return;
   visibleNearbyRestaurants = nearbyRestaurants.filter(rest => !isHidden(rest.id));
-  renderRestaurantsList(container, visibleNearbyRestaurants, 'No restaurants found.');
+  const radiusLabel = formatMilesLabel(selectedRadiusMiles);
+  const emptyMessage =
+    nearbyFilterHasDistanceData && radiusLabel
+      ? `No restaurants found within ${radiusLabel}.`
+      : 'No restaurants found.';
+  renderRestaurantsList(container, visibleNearbyRestaurants, emptyMessage);
 }
 
 function renderSavedSection() {
@@ -696,17 +738,41 @@ function renderHiddenSection() {
   container.innerHTML = '';
   if (!hiddenRestaurants.length) {
     container.classList.remove('is-visible');
+    isHiddenRestaurantsExpanded = false;
     return;
   }
 
   container.classList.add('is-visible');
 
-  const heading = document.createElement('h4');
-  heading.textContent = 'Hidden Restaurants';
-  container.appendChild(heading);
+  const count = hiddenRestaurants.length;
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'restaurants-hidden-toggle';
+  toggle.setAttribute('aria-expanded', String(isHiddenRestaurantsExpanded));
+  toggle.setAttribute('aria-controls', 'restaurantsHiddenList');
+
+  const label = document.createElement('span');
+  label.className = 'restaurants-hidden-toggle-label';
+  label.textContent = `Hidden Restaurants (${count})`;
+  toggle.appendChild(label);
+
+  const icon = document.createElement('span');
+  icon.className = 'restaurants-hidden-toggle-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '▸';
+  toggle.appendChild(icon);
+
+  toggle.addEventListener('click', () => {
+    isHiddenRestaurantsExpanded = !isHiddenRestaurantsExpanded;
+    renderHiddenSection();
+  });
+
+  container.appendChild(toggle);
 
   const list = document.createElement('div');
   list.className = 'restaurants-hidden-list';
+  list.id = 'restaurantsHiddenList';
+  list.hidden = !isHiddenRestaurantsExpanded;
 
   hiddenRestaurants.forEach(rest => {
     const item = document.createElement('div');

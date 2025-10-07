@@ -140,6 +140,34 @@ describe('initRecipesPanel', () => {
     ]);
   });
 
+  it('states when ingredient details are unavailable', async () => {
+    const mockResponse = {
+      results: [
+        {
+          title: 'Mystery Meal',
+          summary: 'A surprise dish'
+        }
+      ]
+    };
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockResponse)
+      })
+    );
+
+    await initRecipesPanel();
+    document.getElementById('recipesQuery').value = 'mystery';
+    document.getElementById('recipesSearchBtn').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const preview = document.querySelector('.recipe-card__ingredient-preview');
+    expect(preview.textContent).toBe('Ingredients were not provided for this recipe.');
+
+    const message = document.querySelector('.recipe-card__ingredients-empty');
+    expect(message.textContent).toBe("We couldn't retrieve the ingredient list for this recipe.");
+  });
+
   it('allows expanding long summaries', async () => {
     const mockResponse = {
       results: [

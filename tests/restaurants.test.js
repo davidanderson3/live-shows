@@ -258,6 +258,49 @@ describe('initRestaurantsPanel', () => {
     expect(headings).toEqual(['Nearby Spot', 'Across Town']);
   });
 
+  it('shows an empty state message when no restaurants match the selected distance', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 34.0522, longitude: -118.2437 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const sampleData = [
+      { name: 'Far Place', rating: 4.5, reviewCount: 90, distance: 10000 },
+      { name: 'Very Far Place', rating: 4.1, reviewCount: 60, distance: 15000 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Los Angeles' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(sampleData)
+      });
+
+    await initRestaurantsPanel();
+
+    const distanceSelect = document.getElementById('restaurantsDistanceSelect');
+    distanceSelect.value = '1';
+    distanceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+    const message = document.querySelector('#restaurantsNearby .restaurants-message');
+    expect(message?.textContent).toContain('No restaurants found within 1 mile.');
+  });
+
   it('allows saving and unsaving restaurants', async () => {
     const dom = setupDom();
     global.window = dom.window;
@@ -356,7 +399,19 @@ describe('initRestaurantsPanel', () => {
     expect(nearbyHeadings).toEqual(['Second Place']);
 
     const hiddenSection = document.getElementById('restaurantsHiddenSection');
-    expect(hiddenSection?.textContent).toContain('Top Rated');
     expect(hiddenSection?.classList.contains('is-visible')).toBe(true);
+
+    const toggle = hiddenSection?.querySelector('.restaurants-hidden-toggle');
+    expect(toggle?.textContent).toContain('Hidden Restaurants (1)');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    toggle?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const expandedToggle = hiddenSection?.querySelector('.restaurants-hidden-toggle');
+    expect(expandedToggle?.getAttribute('aria-expanded')).toBe('true');
+
+    const list = hiddenSection?.querySelector('.restaurants-hidden-list');
+    expect(list?.hidden).toBe(false);
+    expect(list?.textContent).toContain('Top Rated');
   });
 });
