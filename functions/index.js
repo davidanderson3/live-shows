@@ -10,6 +10,9 @@ const TMDB_CACHE_COLLECTION = 'tmdbCache';
 const TMDB_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const RECIPE_CACHE_COLLECTION = 'recipeCache';
 const RECIPE_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
+const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
+const YELP_CACHE_COLLECTION = 'yelpCache';
+const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 
 async function readRecipeCache(query) {
   return readCachedResponse(
@@ -29,6 +32,83 @@ async function writeRecipeCache(query, status, contentType, body) {
       normalizedQuery: normalizeRecipeQuery(query)
     }
   });
+}
+
+function normalizeCoordinate(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : NaN;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
+}
+
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
+  const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
+  const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const parts = ['yelp'];
+  if (hasCoords) {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    parts.push('coords');
+    parts.push(`${lat.toFixed(4)},${lon.toFixed(4)}`);
+  } else {
+    parts.push('coords:none');
+  }
+  if (normalizedCity) {
+    parts.push(`city:${normalizedCity}`);
+  }
+  if (normalizedCuisine) {
+    parts.push(`cuisine:${normalizedCuisine}`);
+  }
+  return parts;
+}
+
+function simplifyBusiness(biz) {
+  if (!biz || typeof biz !== 'object') return null;
+  return {
+    id: biz.id,
+    name: biz.name,
+    address: Array.isArray(biz.location?.display_address)
+      ? biz.location.display_address.join(', ')
+      : biz.location?.address1 || '',
+    city: biz.location?.city || '',
+    state: biz.location?.state || '',
+    zip: biz.location?.zip_code || '',
+    phone: biz.display_phone || biz.phone || '',
+    rating: biz.rating ?? null,
+    reviewCount: biz.review_count ?? null,
+    price: biz.price || '',
+    categories: Array.isArray(biz.categories)
+      ? biz.categories.map(c => c.title).filter(Boolean)
+      : [],
+    latitude:
+      typeof biz.coordinates?.latitude === 'number' ? biz.coordinates.latitude : null,
+    longitude:
+      typeof biz.coordinates?.longitude === 'number' ? biz.coordinates.longitude : null,
+    url: biz.url || '',
+    distance: typeof biz.distance === 'number' ? biz.distance : null
+  };
+}
+
+function getYelpApiKey(req) {
+  const headerKey = typeof req.get === 'function' ? req.get('x-api-key') : null;
+  if (headerKey && headerKey.trim()) {
+    return headerKey.trim();
+  }
+  const rawQueryKey =
+    resolveSingle(req.query?.apiKey) || resolveSingle(req.query?.api_key) || null;
+  if (typeof rawQueryKey === 'string' && rawQueryKey.trim()) {
+    return rawQueryKey.trim();
+  }
+  const fromEnv = process.env.YELP_API_KEY;
+  if (fromEnv) return fromEnv;
+  const fromConfig = functions.config()?.yelp?.key;
+  if (fromConfig) return fromConfig;
+  return null;
 }
 
 function normalizeTmdbParams(params) {
@@ -174,7 +254,10 @@ function resolveSingle(value) {
 function withCors(res) {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Api-Key'
+  );
 }
 
 exports.tmdbProxy = functions
@@ -267,6 +350,109 @@ exports.tmdbProxy = functions
     } catch (err) {
       console.error('TMDB proxy failed', err);
       res.status(500).json({ error: 'tmdb_proxy_failed' });
+    }
+  });
+
+exports.restaurantsProxy = functions
+  .region(DEFAULT_REGION)
+  .https.onRequest(async (req, res) => {
+    withCors(res);
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+
+    if (req.method !== 'GET') {
+      res.status(405).json({ error: 'method_not_allowed' });
+      return;
+    }
+
+    const rawCity = resolveSingle(req.query?.city);
+    const city = typeof rawCity === 'string' ? rawCity.trim() : '';
+    const rawCuisine = resolveSingle(req.query?.cuisine);
+    const cuisine = typeof rawCuisine === 'string' ? rawCuisine.trim() : '';
+    const latitude = normalizeCoordinate(resolveSingle(req.query?.latitude));
+    const longitude = normalizeCoordinate(resolveSingle(req.query?.longitude));
+    const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+
+    if (!hasCoords && !city) {
+      res.status(400).json({ error: 'missing_location' });
+      return;
+    }
+
+    const apiKey = getYelpApiKey(req);
+    if (!apiKey) {
+      res.status(500).json({ error: 'missing_yelp_api_key' });
+      return;
+    }
+
+    const cacheKey = yelpCacheKeyParts({ city, latitude, longitude, cuisine });
+    const cached = await readCachedResponse(
+      YELP_CACHE_COLLECTION,
+      cacheKey,
+      YELP_CACHE_TTL_MS
+    );
+    if (cached) {
+      res.status(cached.status);
+      res.type(cached.contentType);
+      res.send(cached.body);
+      return;
+    }
+
+    const params = new URLSearchParams({
+      categories: 'restaurants',
+      limit: '20',
+      sort_by: 'rating'
+    });
+    if (hasCoords) {
+      params.set('latitude', String(latitude));
+      params.set('longitude', String(longitude));
+    } else if (city) {
+      params.set('location', city);
+    }
+    if (cuisine) {
+      params.set('term', cuisine);
+    }
+
+    try {
+      const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        }
+      });
+
+      const data = await apiRes.json().catch(() => null);
+
+      if (!apiRes.ok || !data) {
+        const message =
+          data?.error?.description || data?.error?.code || data?.error || 'failed';
+        res.status(apiRes.status).json({ error: message });
+        return;
+      }
+
+      const results = Array.isArray(data?.businesses) ? data.businesses : [];
+      const simplified = results.map(simplifyBusiness).filter(Boolean);
+      const payload = JSON.stringify(simplified);
+
+      await writeCachedResponse(YELP_CACHE_COLLECTION, cacheKey, {
+        status: 200,
+        contentType: 'application/json',
+        body: payload,
+        metadata: {
+          city,
+          hasCoords,
+          latitude: hasCoords ? latitude : null,
+          longitude: hasCoords ? longitude : null,
+          cuisine,
+          total: simplified.length
+        }
+      });
+
+      res.type('application/json').send(payload);
+    } catch (err) {
+      console.error('Restaurants proxy failed', err);
+      res.status(500).json({ error: 'restaurants_proxy_failed' });
     }
   });
 

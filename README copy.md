@@ -48,3 +48,4 @@ npm test
 The recipes tab queries the hosted Spoonacular proxy at `/api/spoonacular` (or `/spoonacularProxy` when using the Cloud Functions deployment). The proxy requires a Spoonacular API key to be configured on the server or Cloud Function.
 
 To run the proxy locally, create a `.env` file with `SPOONACULAR_KEY=your_api_key_here` and restart the server with `npm start`.
+
