@@ -145,10 +145,23 @@
           </div>
           <div id="ticketmasterForm" style="margin-bottom:1rem;">
             <button type="button" id="spotifyTokenBtn" style="margin-right:.5rem;">Login to Spotify</button>
-            <span id="spotifyStatus" style="margin-right:.5rem;"></span>
-            <input type="password" id="spotifyToken" placeholder="Spotify Access Token" style="margin-right:.5rem;">
+            <span id="spotifyStatus" class="shows-status" style="margin-right:.5rem;"></span>
             <input type="password" id="ticketmasterApiKey" placeholder="Ticketmaster API Key" style="margin-right:.5rem;">
             <button type="button" id="ticketmasterDiscoverBtn" class="shows-discover-btn">Discover</button>
+          </div>
+          <div id="showsConfigControls" class="shows-config">
+            <div class="shows-config__field">
+              <label for="showsRadius">Search radius (miles)</label>
+              <input type="number" id="showsRadius" min="25" max="1000" step="25" value="300" inputmode="numeric">
+            </div>
+            <div class="shows-config__field">
+              <label for="showsArtistLimit">Top artists to scan</label>
+              <input type="number" id="showsArtistLimit" min="1" max="50" step="1" value="10" inputmode="numeric">
+            </div>
+            <label class="shows-config__toggle" for="showsIncludeSuggestions">
+              <input type="checkbox" id="showsIncludeSuggestions" checked>
+              <span>Show Spotify recommendations when no events are nearby</span>
+            </label>
           </div>
           <div id="showsTabs" class="movie-tabs">
             <button type="button" class="movie-tab shows-tab active" data-target="showsFeedSection">Discover</button>

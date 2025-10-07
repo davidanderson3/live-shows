@@ -24,8 +24,10 @@ describe('initShowsPanel', () => {
     const dom = new JSDOM(`
       <button id="spotifyTokenBtn"></button>
       <span id="spotifyStatus"></span>
-      <input id="spotifyToken" />
       <input id="ticketmasterApiKey" />
+      <input id="showsRadius" value="300" />
+      <input id="showsArtistLimit" value="10" />
+      <input type="checkbox" id="showsIncludeSuggestions" checked />
       <button id="ticketmasterDiscoverBtn">Discover</button>
       <div id="ticketmasterList"></div>
       <div id="ticketmasterInterestedList"></div>
@@ -44,6 +46,20 @@ describe('initShowsPanel', () => {
     };
     window.__NO_SPOTIFY_REDIRECT = true;
     ({ initShowsPanel } = await import('../js/shows.js'));
+  });
+
+  it('renders a preview when Spotify token is missing', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ clientId: 'cid', hasTicketmasterKey: true })
+    });
+
+    await initShowsPanel();
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.show-card--sample').length).toBeGreaterThan(0);
+    expect(document.querySelector('.shows-preview-note')?.textContent).toContain('preview');
   });
 
   it('fetches Spotify artists and Ticketmaster events', async () => {
@@ -75,6 +91,10 @@ describe('initShowsPanel', () => {
         })
       });
 
+    localStorage.setItem(
+      'showsConfigV1',
+      JSON.stringify({ radiusMiles: 300, artistLimit: 5, includeSuggestions: true })
+    );
     localStorage.setItem('spotifyToken', 'token');
     await initShowsPanel();
 
@@ -82,12 +102,61 @@ describe('initShowsPanel', () => {
     await flush();
 
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls[1][0]).toContain('limit=10');
     expect(document.querySelectorAll('.show-card').length).toBe(1);
     expect(fetch.mock.calls[2][0]).toContain('/api/ticketmaster');
     expect(fetch.mock.calls[2][0]).not.toContain('apiKey=');
     expect(document.querySelector('.show-card__title')?.textContent).toContain('Concert');
     expect(document.querySelector('.show-card__cta')?.textContent).toBe('Get Tickets');
     expect(document.querySelectorAll('.show-card__button').length).toBe(2);
+  });
+
+  it('respects updated configuration values on Discover reload', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+
+    localStorage.setItem('spotifyToken', 'token');
+    await initShowsPanel();
+
+    await flush();
+    await flush();
+
+    const artistLimitInput = document.getElementById('showsArtistLimit');
+    const radiusInput = document.getElementById('showsRadius');
+    const includeSuggestionsInput = document.getElementById('showsIncludeSuggestions');
+    artistLimitInput.value = '6';
+    artistLimitInput.dispatchEvent(new window.Event('change'));
+    radiusInput.value = '150';
+    radiusInput.dispatchEvent(new window.Event('change'));
+    includeSuggestionsInput.checked = false;
+    includeSuggestionsInput.dispatchEvent(new window.Event('change'));
+
+    fetch.mockClear();
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [{ name: 'Second Artist', id: 'artist2' }] })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+
+    document.getElementById('ticketmasterDiscoverBtn')._showsClickHandler();
+
+    await flush();
+    await flush();
+
+    expect(fetch.mock.calls[0][0]).toContain('limit=6');
+    const recommendationCall = fetch.mock.calls.find(call =>
+      String(call[0]).includes('api.spotify.com/v1/recommendations')
+    );
+    expect(recommendationCall).toBeUndefined();
+    const storedConfig = JSON.parse(localStorage.getItem('showsConfigV1') || '{}');
+    expect(storedConfig).toMatchObject({
+      artistLimit: 6,
+      radiusMiles: 150,
+      includeSuggestions: false
+    });
   });
 
   it('only shows events within 300 miles of the user', async () => {
@@ -275,7 +344,6 @@ describe('initShowsPanel', () => {
     await flush();
 
     const discoverBtn = document.getElementById('ticketmasterDiscoverBtn');
-    const tokenInput = document.getElementById('spotifyToken');
     expect(discoverBtn).not.toBeNull();
 
     fetch.mockClear();
@@ -310,7 +378,7 @@ describe('initShowsPanel', () => {
         })
       });
 
-    tokenInput.value = 'manual-token';
+    localStorage.setItem('spotifyToken', 'manual-token');
     discoverBtn._showsClickHandler();
 
     await flush();
@@ -369,9 +437,13 @@ describe('initShowsPanel', () => {
     const dom = new JSDOM(`
       <button id="spotifyTokenBtn"></button>
       <span id="spotifyStatus"></span>
-      <input id="spotifyToken" />
       <input id="ticketmasterApiKey" />
+      <input id="showsRadius" value="300" />
+      <input id="showsArtistLimit" value="10" />
+      <input type="checkbox" id="showsIncludeSuggestions" checked />
+      <button id="ticketmasterDiscoverBtn">Discover</button>
       <div id="ticketmasterList"></div>
+      <div id="ticketmasterInterestedList"></div>
     `, { url: 'http://localhost/?code=abc' });
     global.window = dom.window;
     global.document = dom.window.document;
@@ -397,7 +469,7 @@ describe('initShowsPanel', () => {
 
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(localStorage.getItem('spotifyToken')).toBe('newTok');
-    expect(document.getElementById('spotifyToken').value).toBe('');
+    expect(document.getElementById('spotifyStatus')?.textContent).toBe('Spotify connected');
   });
 
   it('falls back to manual Ticketmaster key input when server does not provide one', async () => {
