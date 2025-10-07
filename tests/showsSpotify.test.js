@@ -16,6 +16,38 @@ global.localStorage = storage;
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
+const makeSongkickEvent = ({
+  id = 'event',
+  name = 'Concert',
+  latitude = 30.2672,
+  longitude = -97.7431,
+  date = '2024-01-01',
+  time = '20:00:00',
+  city = 'Austin',
+  state = 'TX',
+  artists = []
+} = {}) => ({
+  id,
+  displayName: name,
+  start: { date, time },
+  location: { lat: latitude, lng: longitude, city: `${city}, ${state}` },
+  venue: {
+    displayName: 'Venue',
+    metroArea: { displayName: city, state: { displayName: state } }
+  },
+  uri: `https://songkick.test/events/${id}`,
+  performance: artists.map(artistName => ({ artist: { displayName: artistName } }))
+});
+
+const makeSongkickResponse = events => ({
+  resultsPage: {
+    status: 'ok',
+    results: {
+      event: events
+    }
+  }
+});
+
 describe('initShowsPanel', () => {
   let initShowsPanel;
   beforeEach(async () => {
@@ -24,13 +56,13 @@ describe('initShowsPanel', () => {
     const dom = new JSDOM(`
       <button id="spotifyTokenBtn"></button>
       <span id="spotifyStatus"></span>
-      <input id="ticketmasterApiKey" />
+      <input id="songkickApiKey" />
       <input id="showsRadius" value="300" />
       <input id="showsArtistLimit" value="10" />
       <input type="checkbox" id="showsIncludeSuggestions" checked />
-      <button id="ticketmasterDiscoverBtn">Discover</button>
-      <div id="ticketmasterList"></div>
-      <div id="ticketmasterInterestedList"></div>
+      <button id="songkickDiscoverBtn">Discover</button>
+      <div id="songkickList"></div>
+      <div id="songkickInterestedList"></div>
     `, { url: 'http://localhost/' });
     global.window = dom.window;
     global.document = dom.window.document;
@@ -51,7 +83,7 @@ describe('initShowsPanel', () => {
   it('renders a preview when Spotify token is missing', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ clientId: 'cid', hasTicketmasterKey: true })
+      json: async () => ({ clientId: 'cid', hasSongkickKey: true })
     });
 
     await initShowsPanel();
@@ -62,33 +94,15 @@ describe('initShowsPanel', () => {
     expect(document.querySelector('.shows-preview-note')?.textContent).toContain('preview');
   });
 
-  it('fetches Spotify artists and Ticketmaster events', async () => {
+  it('fetches Spotify artists and Songkick events', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'The Band' }] }) })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          _embedded: {
-            events: [
-              {
-                name: 'Concert',
-                dates: { start: { localDate: '2024-01-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'Venue',
-                      city: { name: 'City' },
-                      state: { stateCode: 'ST' },
-                      location: { latitude: '30.26', longitude: '-97.74' }
-                    }
-                  ]
-                },
-                url: 'http://example.com'
-              }
-            ]
-          }
-        })
+        json: async () => makeSongkickResponse([
+          makeSongkickEvent({ id: 'sk1', name: 'Concert', artists: ['The Band'] })
+        ])
       });
 
     localStorage.setItem(
@@ -104,7 +118,7 @@ describe('initShowsPanel', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[1][0]).toContain('limit=10');
     expect(document.querySelectorAll('.show-card').length).toBe(1);
-    expect(fetch.mock.calls[2][0]).toContain('/api/ticketmaster');
+    expect(fetch.mock.calls[2][0]).toContain('/api/songkick');
     expect(fetch.mock.calls[2][0]).not.toContain('apiKey=');
     expect(document.querySelector('.show-card__title')?.textContent).toContain('Concert');
     expect(document.querySelector('.show-card__cta')?.textContent).toBe('Get Tickets');
@@ -113,9 +127,9 @@ describe('initShowsPanel', () => {
 
   it('respects updated configuration values on Discover reload', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ resultsPage: { status: 'ok', results: { event: [] } } }) });
 
     localStorage.setItem('spotifyToken', 'token');
     await initShowsPanel();
@@ -139,9 +153,9 @@ describe('initShowsPanel', () => {
         ok: true,
         json: async () => ({ items: [{ name: 'Second Artist', id: 'artist2' }] })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => makeSongkickResponse([]) });
 
-    document.getElementById('ticketmasterDiscoverBtn')._showsClickHandler();
+    document.getElementById('songkickDiscoverBtn')._showsClickHandler();
 
     await flush();
     await flush();
@@ -161,7 +175,7 @@ describe('initShowsPanel', () => {
 
   it('falls back to genre-based Spotify seeds when artist recommendations are empty', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -171,8 +185,8 @@ describe('initShowsPanel', () => {
           ]
         })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeSongkickResponse([]) })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeSongkickResponse([]) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ tracks: [] }) })
       .mockResolvedValueOnce({
         ok: true,
@@ -199,56 +213,43 @@ describe('initShowsPanel', () => {
     const recommendationCalls = fetch.mock.calls.filter(call =>
       String(call[0]).includes('api.spotify.com/v1/recommendations')
     );
-    expect(recommendationCalls.length).toBe(2);
+    expect(recommendationCalls.length).toBe(3);
     expect(recommendationCalls[0][0]).toContain('seed_artists=');
+    expect(recommendationCalls[1][0]).toContain('seed_artists=');
     expect(recommendationCalls[1][0]).toContain('seed_genres=');
+    expect(recommendationCalls[2][0]).toContain('seed_genres=');
     expect(document.querySelectorAll('.shows-suggestion').length).toBe(1);
   });
 
   it('only shows events within 300 miles of the user', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'The Band' }] }) })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          _embedded: {
-            events: [
-              {
-                id: 'near',
-                name: 'Austin Gig',
-                dates: { start: { localDate: '2024-02-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'Continental Club',
-                      city: { name: 'Austin' },
-                      state: { stateCode: 'TX' },
-                      location: { latitude: '30.2669', longitude: '-97.7428' }
-                    }
-                  ]
-                },
-                url: 'http://example.com/austin'
-              },
-              {
-                id: 'far',
-                name: 'NYC Arena',
-                dates: { start: { localDate: '2024-03-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'Madison Square Garden',
-                      city: { name: 'New York' },
-                      state: { stateCode: 'NY' },
-                      location: { latitude: '40.7505', longitude: '-73.9934' }
-                    }
-                  ]
-                },
-                url: 'http://example.com/nyc'
-              }
-            ]
-          }
-        })
+        json: async () =>
+          makeSongkickResponse([
+            makeSongkickEvent({
+              id: 'near',
+              name: 'Austin Gig',
+              date: '2024-02-01',
+              latitude: 30.2669,
+              longitude: -97.7428,
+              city: 'Austin',
+              state: 'TX',
+              artists: ['The Band']
+            }),
+            makeSongkickEvent({
+              id: 'far',
+              name: 'NYC Arena',
+              date: '2024-03-01',
+              latitude: 40.7505,
+              longitude: -73.9934,
+              city: 'New York',
+              state: 'NY',
+              artists: ['The Band']
+            })
+          ])
       });
 
     localStorage.setItem('spotifyToken', 'token');
@@ -263,32 +264,23 @@ describe('initShowsPanel', () => {
 
   it('lets the user mark a show as interested', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'The Band' }] }) })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          _embedded: {
-            events: [
-              {
-                id: 'event1',
-                name: 'Club Night',
-                dates: { start: { localDate: '2024-04-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'The Club',
-                      city: { name: 'Austin' },
-                      state: { stateCode: 'TX' },
-                      location: { latitude: '30.2669', longitude: '-97.7428' }
-                    }
-                  ]
-                },
-                url: 'http://example.com/club'
-              }
-            ]
-          }
-        })
+        json: async () =>
+          makeSongkickResponse([
+            makeSongkickEvent({
+              id: 'event1',
+              name: 'Club Night',
+              date: '2024-04-01',
+              latitude: 30.2669,
+              longitude: -97.7428,
+              city: 'Austin',
+              state: 'TX',
+              artists: ['The Band']
+            })
+          ])
       });
 
     localStorage.setItem('spotifyToken', 'token');
@@ -314,47 +306,32 @@ describe('initShowsPanel', () => {
 
   it('moves not interested shows into a collapsible section', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          _embedded: {
-            events: [
-              {
-                id: 'event1',
-                name: 'Club Night',
-                dates: { start: { localDate: '2024-04-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'The Club',
-                      city: { name: 'Austin' },
-                      state: { stateCode: 'TX' },
-                      location: { latitude: '30.2669', longitude: '-97.7428' }
-                    }
-                  ]
-                },
-                url: 'http://example.com/club'
-              },
-              {
-                id: 'event2',
-                name: 'Outdoor Fest',
-                dates: { start: { localDate: '2024-05-10' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'Zilker Park',
-                      city: { name: 'Austin' },
-                      state: { stateCode: 'TX' },
-                      location: { latitude: '30.2669', longitude: '-97.7428' }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        })
+        json: async () =>
+          makeSongkickResponse([
+            makeSongkickEvent({
+              id: 'event1',
+              name: 'Club Night',
+              date: '2024-04-01',
+              latitude: 30.2669,
+              longitude: -97.7428,
+              city: 'Austin',
+              state: 'TX',
+              artists: ['Artist']
+            }),
+            makeSongkickEvent({
+              id: 'event2',
+              name: 'Outdoor Fest',
+              date: '2024-05-10',
+              latitude: 30.2669,
+              longitude: -97.7428,
+              city: 'Austin',
+              state: 'TX'
+            })
+          ])
       });
 
     localStorage.setItem('spotifyToken', 'token');
@@ -383,13 +360,13 @@ describe('initShowsPanel', () => {
   it('wires the Discover button even when Spotify client ID is missing', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ clientId: '', hasTicketmasterKey: true })
+      json: async () => ({ clientId: '', hasSongkickKey: true })
     });
 
     await initShowsPanel();
     await flush();
 
-    const discoverBtn = document.getElementById('ticketmasterDiscoverBtn');
+    const discoverBtn = document.getElementById('songkickDiscoverBtn');
     expect(discoverBtn).not.toBeNull();
 
     fetch.mockClear();
@@ -400,28 +377,19 @@ describe('initShowsPanel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          _embedded: {
-            events: [
-              {
-                id: 'event1',
-                name: 'Club Night',
-                dates: { start: { localDate: '2024-04-01' } },
-                _embedded: {
-                  venues: [
-                    {
-                      name: 'The Club',
-                      city: { name: 'Austin' },
-                      state: { stateCode: 'TX' },
-                      location: { latitude: '30.2669', longitude: '-97.7428' }
-                    }
-                  ]
-                },
-                url: 'http://example.com/club'
-              }
-            ]
-          }
-        })
+        json: async () =>
+          makeSongkickResponse([
+            makeSongkickEvent({
+              id: 'event1',
+              name: 'Club Night',
+              date: '2024-04-01',
+              latitude: 30.2669,
+              longitude: -97.7428,
+              city: 'Austin',
+              state: 'TX',
+              artists: ['Top Artist']
+            })
+          ])
       });
 
     localStorage.setItem('spotifyToken', 'manual-token');
@@ -432,7 +400,7 @@ describe('initShowsPanel', () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0][0]).toContain('api.spotify.com');
-    expect(fetch.mock.calls[1][0]).toContain('/api/ticketmaster');
+    expect(fetch.mock.calls[1][0]).toContain('/api/songkick');
     expect(document.querySelectorAll('.show-card').length).toBe(1);
     expect(discoverBtn.disabled).toBe(false);
     expect(discoverBtn.classList.contains('is-loading')).toBe(false);
@@ -466,7 +434,7 @@ describe('initShowsPanel', () => {
 
   it('stores credentials and cached values during OAuth flow', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockRejectedValue(new Error('fail'));
     localStorage.setItem('spotifyToken', 'tok');
     await initShowsPanel();
@@ -476,26 +444,26 @@ describe('initShowsPanel', () => {
 
     expect(localStorage.getItem('spotifyCodeVerifier')).toBeTruthy();
     expect(localStorage.getItem('spotifyToken')).toBe('tok');
-    expect(localStorage.getItem('ticketmasterApiKey')).toBeFalsy();
+    expect(localStorage.getItem('songkickApiKey')).toBeFalsy();
   });
 
   it('exchanges authorization code for token', async () => {
     const dom = new JSDOM(`
       <button id="spotifyTokenBtn"></button>
       <span id="spotifyStatus"></span>
-      <input id="ticketmasterApiKey" />
+      <input id="songkickApiKey" />
       <input id="showsRadius" value="300" />
       <input id="showsArtistLimit" value="10" />
       <input type="checkbox" id="showsIncludeSuggestions" checked />
-      <button id="ticketmasterDiscoverBtn">Discover</button>
-      <div id="ticketmasterList"></div>
-      <div id="ticketmasterInterestedList"></div>
+      <button id="songkickDiscoverBtn">Discover</button>
+      <div id="songkickList"></div>
+      <div id="songkickInterestedList"></div>
     `, { url: 'http://localhost/?code=abc' });
     global.window = dom.window;
     global.document = dom.window.document;
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'newTok' }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) });
     global.navigator = {
@@ -518,33 +486,34 @@ describe('initShowsPanel', () => {
     expect(document.getElementById('spotifyStatus')?.textContent).toBe('Spotify connected');
   });
 
-  it('falls back to manual Ticketmaster key input when server does not provide one', async () => {
+  it('falls back to manual Songkick key input when server does not provide one', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: false }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: false }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => makeSongkickResponse([]) });
 
     localStorage.setItem('spotifyToken', 'token');
-    const input = document.getElementById('ticketmasterApiKey');
+    const input = document.getElementById('songkickApiKey');
     input.value = 'manualKey';
 
     await initShowsPanel();
     await flush();
     await flush();
 
+    expect(fetch.mock.calls[2][0]).toContain('/api/songkick');
     expect(fetch.mock.calls[2][0]).toContain('apiKey=manualKey');
   });
 
   it('shows Spotify suggestions when no live shows are available', async () => {
     fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasTicketmasterKey: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasSongkickKey: true }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           items: [{ name: 'Top Artist', id: 'artist1' }]
         })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ _embedded: { events: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => makeSongkickResponse([]) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({

@@ -323,101 +323,163 @@ async function fetchSpotifySuggestions(token, artists) {
   return [];
 }
 
-const TICKETMASTER_CACHE_STORAGE_KEY = 'ticketmasterCacheV1';
-const TICKETMASTER_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
-const MAX_TICKETMASTER_CACHE_ENTRIES = 50;
+const SONGKICK_CACHE_STORAGE_KEY = 'songkickCacheV1';
+const SONGKICK_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+const MAX_SONGKICK_CACHE_ENTRIES = 50;
 
-function normalizeTicketmasterCacheKey(keyword) {
-  return (keyword || '').toLowerCase().trim();
-}
-
-function loadTicketmasterCache() {
+function loadSongkickCache() {
   if (typeof localStorage === 'undefined') return {};
   try {
-    const raw = localStorage.getItem(TICKETMASTER_CACHE_STORAGE_KEY);
+    const raw = localStorage.getItem(SONGKICK_CACHE_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch (err) {
-    console.warn('Unable to load Ticketmaster cache', err);
+    console.warn('Unable to load Songkick cache', err);
     return {};
   }
 }
 
-function saveTicketmasterCache(cache) {
+function saveSongkickCache(cache) {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(TICKETMASTER_CACHE_STORAGE_KEY, JSON.stringify(cache));
+    localStorage.setItem(SONGKICK_CACHE_STORAGE_KEY, JSON.stringify(cache));
   } catch (err) {
-    console.warn('Unable to persist Ticketmaster cache', err);
+    console.warn('Unable to persist Songkick cache', err);
   }
 }
 
-const ticketmasterCache = loadTicketmasterCache();
-const ticketmasterMemoryCache = new Map();
+const songkickCache = loadSongkickCache();
+const songkickMemoryCache = new Map();
+const SONGKICK_LOOKAHEAD_DAYS = 14;
 
-function ticketmasterCacheKey(keyword, scope = 'server') {
-  const normalized = normalizeTicketmasterCacheKey(keyword);
-  return normalized ? `${scope}:${normalized}` : '';
+function formatDateForSongkick(date = new Date()) {
+  try {
+    return date.toISOString().slice(0, 10);
+  } catch (err) {
+    console.warn('Unable to format Songkick start date', err);
+    return new Date().toISOString().slice(0, 10);
+  }
 }
 
-function getCachedTicketmasterResponse(keyword, scope = 'server') {
-  const key = ticketmasterCacheKey(keyword, scope);
-  if (!key) return null;
+function songkickCacheKey({ latitude, longitude, radiusMiles, startDate, days, scope = 'server' }) {
+  const lat = Number.isFinite(latitude) ? latitude.toFixed(3) : 'na';
+  const lon = Number.isFinite(longitude) ? longitude.toFixed(3) : 'na';
+  const radius = Number.isFinite(radiusMiles) ? radiusMiles.toFixed(1) : 'na';
+  const normalizedDate = typeof startDate === 'string' ? startDate : 'today';
+  const normalizedDays = Number.isFinite(days) ? Math.round(days) : 14;
+  return `${scope}:${lat}:${lon}:${radius}:${normalizedDate}:${normalizedDays}`;
+}
 
+function getCachedSongkickResponse(params) {
+  const key = songkickCacheKey(params);
   const now = Date.now();
-  const memoryEntry = ticketmasterMemoryCache.get(key);
-  if (memoryEntry && now - memoryEntry.timestamp < TICKETMASTER_CACHE_TTL) {
+  const memoryEntry = songkickMemoryCache.get(key);
+  if (memoryEntry && now - memoryEntry.timestamp < SONGKICK_CACHE_TTL) {
     return memoryEntry.data;
   }
-
-  const storedEntry = ticketmasterCache[key];
-  if (storedEntry && now - storedEntry.timestamp < TICKETMASTER_CACHE_TTL) {
-    ticketmasterMemoryCache.set(key, storedEntry);
+  const storedEntry = songkickCache[key];
+  if (storedEntry && now - storedEntry.timestamp < SONGKICK_CACHE_TTL) {
+    songkickMemoryCache.set(key, storedEntry);
     return storedEntry.data;
   }
-
   return null;
 }
 
-function setCachedTicketmasterResponse(keyword, data, scope = 'server') {
-  const key = ticketmasterCacheKey(keyword, scope);
-  if (!key) return;
+function setCachedSongkickResponse(params, data) {
+  const key = songkickCacheKey(params);
   const entry = { timestamp: Date.now(), data };
-  ticketmasterMemoryCache.set(key, entry);
+  songkickMemoryCache.set(key, entry);
   if (typeof localStorage === 'undefined') return;
-  ticketmasterCache[key] = entry;
+  songkickCache[key] = entry;
 
-  const keys = Object.keys(ticketmasterCache);
+  const keys = Object.keys(songkickCache);
   const now = Date.now();
   for (const existingKey of keys) {
-    if (now - ticketmasterCache[existingKey].timestamp >= TICKETMASTER_CACHE_TTL) {
-      delete ticketmasterCache[existingKey];
+    if (now - songkickCache[existingKey].timestamp >= SONGKICK_CACHE_TTL) {
+      delete songkickCache[existingKey];
     }
   }
 
-  const remainingKeys = Object.keys(ticketmasterCache);
-  if (remainingKeys.length > MAX_TICKETMASTER_CACHE_ENTRIES) {
+  const remainingKeys = Object.keys(songkickCache);
+  if (remainingKeys.length > MAX_SONGKICK_CACHE_ENTRIES) {
     remainingKeys
-      .sort((a, b) => ticketmasterCache[a].timestamp - ticketmasterCache[b].timestamp)
-      .slice(0, remainingKeys.length - MAX_TICKETMASTER_CACHE_ENTRIES)
-      .forEach((oldKey) => {
-        delete ticketmasterCache[oldKey];
+      .sort((a, b) => songkickCache[a].timestamp - songkickCache[b].timestamp)
+      .slice(0, remainingKeys.length - MAX_SONGKICK_CACHE_ENTRIES)
+      .forEach(oldKey => {
+        delete songkickCache[oldKey];
       });
   }
 
-  saveTicketmasterCache(ticketmasterCache);
+  saveSongkickCache(songkickCache);
 }
 
-function getStaleTicketmasterResponse(keyword, scope = 'server') {
-  const key = ticketmasterCacheKey(keyword, scope);
-  if (!key) return null;
-  const memoryEntry = ticketmasterMemoryCache.get(key);
-  if (memoryEntry) {
-    return memoryEntry.data;
+function getSongkickMatchedArtists(event, artistNames) {
+  if (!event || !artistNames?.size) return [];
+  const performances = Array.isArray(event.performance) ? event.performance : [];
+  const matches = new Set();
+  for (const perf of performances) {
+    const name =
+      (perf.artist?.displayName || perf.displayName || perf.name || '').toLowerCase().trim();
+    if (name && artistNames.has(name)) {
+      matches.add(perf.artist?.displayName || perf.displayName || perf.name || '');
+    }
   }
-  const storedEntry = ticketmasterCache[key];
-  return storedEntry?.data || null;
+  return Array.from(matches).filter(Boolean);
+}
+
+function normalizeSongkickEvent(rawEvent, {
+  userLatitude,
+  userLongitude,
+  radiusMiles,
+  order
+}) {
+  if (!rawEvent) return null;
+  const lat = Number.parseFloat(
+    rawEvent.location?.lat ?? rawEvent.venue?.lat ?? rawEvent.venue?.latitude
+  );
+  const lon = Number.parseFloat(
+    rawEvent.location?.lng ?? rawEvent.location?.lon ?? rawEvent.venue?.lng ?? rawEvent.venue?.longitude
+  );
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  let distance = null;
+  if (Number.isFinite(userLatitude) && Number.isFinite(userLongitude)) {
+    distance = calculateDistanceMiles(userLatitude, userLongitude, lat, lon);
+  }
+  if (Number.isFinite(distance) && Number.isFinite(radiusMiles) && distance > radiusMiles) {
+    return null;
+  }
+
+  const localDate = rawEvent.start?.date || '';
+  const localTime = rawEvent.start?.time || '';
+  const venueCity = rawEvent.venue?.metroArea?.displayName || rawEvent.location?.city || '';
+  const venueState = rawEvent.venue?.metroArea?.state?.displayName || '';
+
+  const normalized = {
+    id: String(
+      rawEvent.id ||
+        rawEvent.uri ||
+        `${rawEvent.displayName || rawEvent.type || 'event'}-${order}`
+    ),
+    event: {
+      name: rawEvent.displayName || rawEvent.type || 'Live music event',
+      dates: { start: { localDate, localTime } },
+      url: rawEvent.uri || '',
+      images: []
+    },
+    venue: {
+      name: rawEvent.venue?.displayName || '',
+      city: { name: venueCity || '' },
+      state: { stateCode: venueState || '' }
+    },
+    distance: Number.isFinite(distance) ? distance : null,
+    order
+  };
+
+  return normalized;
 }
 
 function toRadians(deg) {
@@ -551,8 +613,8 @@ function getShowStatus(id) {
 }
 
 function renderShowsList() {
-  const listEl = document.getElementById('ticketmasterList');
-  const interestedEl = document.getElementById('ticketmasterInterestedList');
+  const listEl = document.getElementById('songkickList');
+  const interestedEl = document.getElementById('songkickInterestedList');
   if (!listEl && !interestedEl) return;
 
   if (listEl) {
@@ -803,6 +865,19 @@ function createShowCard(item) {
     meta.appendChild(distanceDiv);
   }
 
+  if (Array.isArray(item.matchedArtists) && item.matchedArtists.length) {
+    const matchDiv = document.createElement('div');
+    matchDiv.className = 'show-card__tag show-card__tag--match';
+    const previewArtists = item.matchedArtists.slice(0, 2);
+    let label = previewArtists.join(', ');
+    const remaining = item.matchedArtists.length - previewArtists.length;
+    if (remaining > 0) {
+      label += ` +${remaining} more`;
+    }
+    matchDiv.textContent = `Matches your Spotify: ${label}`;
+    meta.appendChild(matchDiv);
+  }
+
   if (meta.childElementCount > 0) {
     header.appendChild(meta);
   }
@@ -897,14 +972,14 @@ if (typeof window !== 'undefined') {
 }
 
 export async function initShowsPanel() {
-  const listEl = document.getElementById('ticketmasterList');
+  const listEl = document.getElementById('songkickList');
   if (!listEl) return;
-  const interestedListEl = document.getElementById('ticketmasterInterestedList');
+  const interestedListEl = document.getElementById('songkickInterestedList');
   const tokenBtn = document.getElementById('spotifyTokenBtn');
   const statusEl = document.getElementById('spotifyStatus');
-  const apiKeyInput = document.getElementById('ticketmasterApiKey');
+  const apiKeyInput = document.getElementById('songkickApiKey');
   const tabsContainer = document.getElementById('showsTabs');
-  const discoverBtn = document.getElementById('ticketmasterDiscoverBtn');
+  const discoverBtn = document.getElementById('songkickDiscoverBtn');
   const radiusInput = document.getElementById('showsRadius');
   const artistLimitInput = document.getElementById('showsArtistLimit');
   const includeSuggestionsInput = document.getElementById('showsIncludeSuggestions');
@@ -989,13 +1064,13 @@ export async function initShowsPanel() {
   }
 
   let spotifyClientId = '';
-  let serverHasTicketmasterKey = false;
+  let serverHasSongkickKey = false;
   try {
     const res = await fetch(`${API_BASE_URL}/api/spotify-client-id`);
     if (res.ok) {
       const data = await res.json();
       spotifyClientId = data.clientId || '';
-      serverHasTicketmasterKey = Boolean(data.hasTicketmasterKey);
+      serverHasSongkickKey = Boolean(data.hasSongkickKey);
     }
   } catch (err) {
     console.error('Failed to fetch Spotify client ID', err);
@@ -1013,7 +1088,7 @@ export async function initShowsPanel() {
     }
   }
 
-  if (serverHasTicketmasterKey && apiKeyInput) {
+  if (serverHasSongkickKey && apiKeyInput) {
     apiKeyInput.style.display = 'none';
   }
 
@@ -1116,8 +1191,8 @@ export async function initShowsPanel() {
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
     const manualApiKey =
       apiKeyInput?.value.trim() ||
-      (typeof localStorage !== 'undefined' && localStorage.getItem('ticketmasterApiKey')) || '';
-    const requiresManualApiKey = !serverHasTicketmasterKey;
+      (typeof localStorage !== 'undefined' && localStorage.getItem('songkickApiKey')) || '';
+    const requiresManualApiKey = !serverHasSongkickKey;
 
     if (!token) {
       currentShows = [];
@@ -1138,15 +1213,15 @@ export async function initShowsPanel() {
     if (requiresManualApiKey && !manualApiKey) {
       currentShows = [];
       currentSuggestions = [];
-      listEl.textContent = 'Please enter your Ticketmaster API key.';
+      listEl.textContent = 'Please enter your Songkick API key.';
       stopLoading();
       return;
     }
 
     if (requiresManualApiKey && apiKeyInput?.value && typeof localStorage !== 'undefined') {
-      localStorage.setItem('ticketmasterApiKey', manualApiKey);
+      localStorage.setItem('songkickApiKey', manualApiKey);
     } else if (!requiresManualApiKey && typeof localStorage !== 'undefined') {
-      localStorage.removeItem('ticketmasterApiKey');
+      localStorage.removeItem('songkickApiKey');
     }
 
     listEl.innerHTML = '<em>Loading...</em>';
@@ -1198,92 +1273,95 @@ export async function initShowsPanel() {
         return;
       }
 
-      const eventsMap = new Map();
-      let eventCounter = 0;
       const apiBase =
         API_BASE_URL && API_BASE_URL !== 'null'
           ? API_BASE_URL.replace(/\/$/, '')
           : '';
-      for (const artist of artists) {
-        const params = new URLSearchParams({ keyword: artist.name });
+      const cacheScope = requiresManualApiKey ? 'manual' : 'server';
+      const startDate = formatDateForSongkick();
+      const cacheParams = {
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+        radiusMiles,
+        startDate,
+        days: SONGKICK_LOOKAHEAD_DAYS,
+        scope: cacheScope
+      };
+
+      let songkickData = getCachedSongkickResponse(cacheParams);
+      if (!songkickData) {
+        const params = new URLSearchParams({
+          lat: String(userLocation.latitude),
+          lon: String(userLocation.longitude),
+          startDate,
+          days: String(SONGKICK_LOOKAHEAD_DAYS)
+        });
+        if (Number.isFinite(radiusMiles)) {
+          params.set('radius', String(radiusMiles));
+        }
         if (requiresManualApiKey) {
           params.set('apiKey', manualApiKey);
         }
-        const tmUrl = `${apiBase}/api/ticketmaster?${params.toString()}`;
-        const cacheScope = requiresManualApiKey ? 'manual' : 'server';
-        let data = getCachedTicketmasterResponse(artist.name, cacheScope);
-        if (!data) {
-          const res = await fetch(tmUrl);
-          if (!res.ok) {
-            if (res.status === 429) {
-              console.warn('Ticketmaster rate limit reached for', artist.name);
-              data = getStaleTicketmasterResponse(artist.name, cacheScope);
-              if (!data) {
-                continue;
-              }
-            } else {
-              continue;
-            }
-          }
-          if (!data) {
-            data = await res.json();
-            setCachedTicketmasterResponse(artist.name, data, cacheScope);
-          }
+        const skUrl = `${apiBase}/api/songkick?${params.toString()}`;
+        const res = await fetch(skUrl);
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(
+            `Songkick HTTP ${res.status}${errText ? `: ${errText.slice(0, 200)}` : ''}`
+          );
         }
-        const events = data._embedded?.events;
-        if (!Array.isArray(events)) continue;
-        for (const ev of events) {
-          const venue = ev._embedded?.venues?.[0];
-          const lat = Number.parseFloat(venue?.location?.latitude);
-          const lon = Number.parseFloat(venue?.location?.longitude);
-          let distance = null;
-          if (
-            userLocation &&
-            Number.isFinite(lat) &&
-            Number.isFinite(lon)
-          ) {
-            distance = calculateDistanceMiles(
-              userLocation.latitude,
-              userLocation.longitude,
-              lat,
-              lon
-            );
-          }
-          if (Number.isFinite(distance) && distance > radiusMiles) {
-            continue;
-          }
-          if (distance == null) {
-            continue;
-          }
-          const eventKey =
-            ev.id ||
-            `${artist.id || artist.name || 'artist'}-${ev.url || ev.name || eventCounter}`;
-          if (!eventsMap.has(eventKey)) {
-            eventsMap.set(eventKey, {
-              id: eventKey,
-              event: ev,
-              venue,
-              distance,
-              order: eventCounter++
-            });
-          }
+        songkickData = await res.json();
+        setCachedSongkickResponse(cacheParams, songkickData);
+      }
+
+      const rawEvents = Array.isArray(songkickData?.resultsPage?.results?.event)
+        ? songkickData.resultsPage.results.event
+        : [];
+
+      const artistNames = new Set(
+        artists
+          .map(artist => (artist?.name || '').toLowerCase().trim())
+          .filter(name => Boolean(name))
+      );
+
+      const matchingEvents = [];
+      const otherEvents = [];
+      let eventCounter = 0;
+
+      for (const rawEvent of rawEvents) {
+        const normalized = normalizeSongkickEvent(rawEvent, {
+          userLatitude: userLocation.latitude,
+          userLongitude: userLocation.longitude,
+          radiusMiles,
+          order: eventCounter
+        });
+        if (!normalized) {
+          continue;
+        }
+        normalized.order = eventCounter++;
+        const matchedArtists = getSongkickMatchedArtists(rawEvent, artistNames);
+        if (matchedArtists.length) {
+          normalized.matchedArtists = matchedArtists;
+          matchingEvents.push(normalized);
+        } else {
+          otherEvents.push(normalized);
         }
       }
 
-      if (eventsMap.size > 0) {
-        const events = Array.from(eventsMap.values());
-        if (cachedUserLocation) {
-          events.sort((a, b) => {
-            const aDist = a.distance;
-            const bDist = b.distance;
-            if (aDist == null && bDist == null) return a.order - b.order;
-            if (aDist == null) return 1;
-            if (bDist == null) return -1;
-            if (aDist === bDist) return a.order - b.order;
-            return aDist - bDist;
-          });
-        }
-        currentShows = events;
+      const sortByDistance = (a, b) => {
+        const aDist = Number.isFinite(a.distance) ? a.distance : Infinity;
+        const bDist = Number.isFinite(b.distance) ? b.distance : Infinity;
+        if (aDist === bDist) return a.order - b.order;
+        return aDist - bDist;
+      };
+
+      matchingEvents.sort(sortByDistance);
+      otherEvents.sort(sortByDistance);
+
+      const combinedEvents = matchingEvents.concat(otherEvents);
+
+      if (combinedEvents.length > 0) {
+        currentShows = combinedEvents;
         currentSuggestions = [];
         showsEmptyReason = null;
         renderShowsList();

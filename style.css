@@ -567,7 +567,7 @@ button:hover {
   position: relative;
 }
 
-#ticketmasterList {
+#songkickList {
   width: 100%;
 }
 
@@ -761,6 +761,11 @@ button:hover {
   padding: 0.2rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.show-card__tag--match {
+  background: #fdeacc;
+  color: #7a3b00;
 }
 
 .show-card__location {

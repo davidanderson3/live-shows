@@ -27,13 +27,11 @@ const execFileAsync = util.promisify(execFile);
 const app = express();
 const PORT = Number(process.env.PORT) || 3003;
 const HOST = process.env.HOST || (process.env.VITEST ? '127.0.0.1' : '0.0.0.0');
-const TICKETMASTER_CONSUMER_KEY =
-  process.env.TICKETMASTER_CONSUMER_KEY || process.env.TICKETMASTER_API_KEY || '';
-const TICKETMASTER_CONSUMER_SECRET = process.env.TICKETMASTER_CONSUMER_SECRET || '';
-const HAS_TICKETMASTER_KEY = Boolean(TICKETMASTER_CONSUMER_KEY);
+const SONGKICK_API_KEY = process.env.SONGKICK_API_KEY || '';
+const HAS_SONGKICK_KEY = Boolean(SONGKICK_API_KEY);
 const YELP_CACHE_COLLECTION = 'yelpCache';
 const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
-const TICKETMASTER_CACHE_COLLECTION = 'ticketmasterCache';
+const SONGKICK_CACHE_COLLECTION = 'songkickCache';
 const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
 const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 
@@ -84,12 +82,6 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
     parts.push(`cuisine:${normalizedCuisine}`);
   }
   return parts;
-}
-
-function ticketmasterCacheKeyParts(apiKey, keyword) {
-  const normalizedKey = String(apiKey || '').trim().toLowerCase();
-  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
-  return ['ticketmaster', normalizedKey, normalizedKeyword];
 }
 
 const plaidClient = (() => {
@@ -206,7 +198,7 @@ app.get('/api/spotify-client-id', (req, res) => {
   if (!clientId) {
     return res.status(500).json({ error: 'missing' });
   }
-  res.json({ clientId, hasTicketmasterKey: HAS_TICKETMASTER_KEY });
+  res.json({ clientId, hasSongkickKey: HAS_SONGKICK_KEY });
 });
 
 app.get('/api/restaurants', async (req, res) => {
@@ -308,112 +300,191 @@ app.get('/api/restaurants', async (req, res) => {
   }
 });
 
-// --- Ticketmaster proxy ---
-const TICKETMASTER_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
-const TICKETMASTER_CACHE_MAX_ENTRIES = 100;
-const TICKETMASTER_MIN_INTERVAL_MS = 300;
+// --- Songkick proxy ---
+const SONGKICK_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+const SONGKICK_CACHE_MAX_ENTRIES = 200;
 
-const ticketmasterCache = new Map();
-let ticketmasterQueue = Promise.resolve();
-let ticketmasterLastRequestTime = 0;
+const songkickCache = new Map();
 
-function ticketmasterCacheKey(keyword = '', apiKey = '') {
-  return `${apiKey.trim().toLowerCase()}::${keyword.trim().toLowerCase()}`;
+function normalizeCoordinate(value, digits = 3) {
+  const num = Number.parseFloat(value);
+  if (!Number.isFinite(num)) return null;
+  return Number(num.toFixed(digits));
 }
 
-function getTicketmasterCacheEntry(key) {
-  const entry = ticketmasterCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > TICKETMASTER_CACHE_TTL_MS) {
-    ticketmasterCache.delete(key);
+function toDateString(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
     return null;
   }
-  // Refresh LRU order by reinserting the key.
-  ticketmasterCache.delete(key);
-  ticketmasterCache.set(key, entry);
-  return entry;
+  date.setUTCDate(date.getUTCDate() + days);
+  return toDateString(date);
 }
 
-function setTicketmasterCacheEntry(key, value) {
-  ticketmasterCache.set(key, { ...value, timestamp: Date.now() });
-  if (ticketmasterCache.size > TICKETMASTER_CACHE_MAX_ENTRIES) {
-    const oldestKey = ticketmasterCache.keys().next().value;
+function songkickMemoryCacheKey({ scope, latitude, longitude, radiusKm, startDate, endDate }) {
+  const latPart = normalizeCoordinate(latitude, 3);
+  const lonPart = normalizeCoordinate(longitude, 3);
+  const radiusPart = Number.isFinite(radiusKm) ? Number(radiusKm.toFixed(1)) : 'none';
+  return [scope, latPart, lonPart, radiusPart, startDate, endDate].join('::');
+}
+
+function songkickCacheKeyParts({ apiKey, latitude, longitude, radiusKm, startDate, endDate }) {
+  const keyPart = String(apiKey || '').trim().toLowerCase();
+  const latPart = normalizeCoordinate(latitude, 3);
+  const lonPart = normalizeCoordinate(longitude, 3);
+  const radiusPart = Number.isFinite(radiusKm) ? Number(radiusKm.toFixed(1)) : 'none';
+  return [
+    'songkick',
+    keyPart,
+    `lat:${latPart}`,
+    `lon:${lonPart}`,
+    `radius:${radiusPart}`,
+    `from:${startDate}`,
+    `to:${endDate}`
+  ];
+}
+
+function getSongkickCacheEntry(key) {
+  const entry = songkickCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > SONGKICK_CACHE_TTL_MS) {
+    songkickCache.delete(key);
+    return null;
+  }
+  songkickCache.delete(key);
+  songkickCache.set(key, entry);
+  return entry.value;
+}
+
+function setSongkickCacheEntry(key, value) {
+  songkickCache.set(key, { timestamp: Date.now(), value });
+  if (songkickCache.size > SONGKICK_CACHE_MAX_ENTRIES) {
+    const oldestKey = songkickCache.keys().next().value;
     if (oldestKey) {
-      ticketmasterCache.delete(oldestKey);
+      songkickCache.delete(oldestKey);
     }
   }
 }
 
-async function scheduleTicketmasterFetch(url) {
-  const run = ticketmasterQueue
-    .catch(() => null)
-    .then(async () => {
-      const now = Date.now();
-      const waitMs = Math.max(0, ticketmasterLastRequestTime + TICKETMASTER_MIN_INTERVAL_MS - now);
-      if (waitMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, waitMs));
-      }
-      ticketmasterLastRequestTime = Date.now();
-      return fetch(url);
-    });
-  ticketmasterQueue = run;
-  return run;
+function clampDays(value) {
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num)) return 14;
+  return Math.min(Math.max(num, 1), 31);
 }
 
-app.get('/api/ticketmaster', async (req, res) => {
-  const { apiKey: queryKey, keyword } = req.query || {};
-  if (!keyword) {
-    return res.status(400).json({ error: 'missing keyword' });
+function normalizeDateString(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  return toDateString(date);
+}
+
+app.get('/api/songkick', async (req, res) => {
+  const { apiKey: queryKey, lat, lon, radius, startDate: startParam, days } = req.query || {};
+  const latitude = normalizeCoordinate(lat, 4);
+  const longitude = normalizeCoordinate(lon, 4);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return res.status(400).json({ error: 'missing coordinates' });
   }
 
-  const effectiveKey = queryKey || TICKETMASTER_CONSUMER_KEY;
+  const radiusMiles = Number.parseFloat(radius);
+  const radiusKm = Number.isFinite(radiusMiles) && radiusMiles > 0 ? radiusMiles * 1.60934 : null;
+
+  const today = toDateString(new Date());
+  const normalizedStart = normalizeDateString(startParam) || today;
+  const lookaheadDays = clampDays(days);
+  const endDate = addDays(normalizedStart, lookaheadDays - 1) || normalizedStart;
+
+  const effectiveKey = queryKey || SONGKICK_API_KEY;
   if (!effectiveKey) {
-    return res.status(500).json({ error: 'missing ticketmaster api key' });
+    return res.status(500).json({ error: 'missing songkick api key' });
   }
 
-  const cacheKey = ticketmasterCacheKey(keyword, effectiveKey);
-  const cached = getTicketmasterCacheEntry(cacheKey);
+  const scope = queryKey ? 'manual' : 'server';
+  const memoryKey = songkickMemoryCacheKey({
+    scope,
+    latitude,
+    longitude,
+    radiusKm,
+    startDate: normalizedStart,
+    endDate
+  });
+
+  const cached = getSongkickCacheEntry(memoryKey);
   if (cached) {
     return res.status(cached.status).type('application/json').send(cached.text);
   }
 
-  const cacheKeyParts = ticketmasterCacheKeyParts(effectiveKey, keyword);
   const sharedCached = await readCachedResponse(
-    TICKETMASTER_CACHE_COLLECTION,
-    cacheKeyParts,
-    TICKETMASTER_CACHE_TTL_MS
+    SONGKICK_CACHE_COLLECTION,
+    songkickCacheKeyParts({
+      apiKey: scope === 'manual' ? queryKey : effectiveKey,
+      latitude,
+      longitude,
+      radiusKm,
+      startDate: normalizedStart,
+      endDate
+    }),
+    SONGKICK_CACHE_TTL_MS
   );
   if (sharedCached) {
-    setTicketmasterCacheEntry(cacheKey, { status: sharedCached.status, text: sharedCached.body });
+    setSongkickCacheEntry(memoryKey, {
+      status: sharedCached.status,
+      text: sharedCached.body
+    });
     sendCachedResponse(res, sharedCached);
     return;
   }
 
-  const url =
-    `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${encodeURIComponent(
-      effectiveKey
-    )}&classificationName=music&keyword=${encodeURIComponent(keyword)}`;
+  const params = new URLSearchParams({
+    apikey: effectiveKey,
+    location: `geo:${latitude},${longitude}`,
+    per_page: '50',
+    min_date: normalizedStart,
+    max_date: endDate
+  });
+  if (Number.isFinite(radiusKm)) {
+    params.set('radius', radiusKm.toFixed(1));
+  }
+
+  const url = `https://api.songkick.com/api/3.0/events.json?${params.toString()}`;
+
   try {
-    const response = await scheduleTicketmasterFetch(url);
+    const response = await fetch(url);
     const text = await response.text();
     if (response.ok) {
-      setTicketmasterCacheEntry(cacheKey, { status: response.status, text });
-      await writeCachedResponse(TICKETMASTER_CACHE_COLLECTION, cacheKeyParts, {
+      setSongkickCacheEntry(memoryKey, { status: response.status, text });
+      await writeCachedResponse(SONGKICK_CACHE_COLLECTION, songkickCacheKeyParts({
+        apiKey: scope === 'manual' ? queryKey : effectiveKey,
+        latitude,
+        longitude,
+        radiusKm,
+        startDate: normalizedStart,
+        endDate
+      }), {
         status: response.status,
         contentType: 'application/json',
         body: text,
         metadata: {
-          keyword,
+          latitude,
+          longitude,
+          radiusMiles: Number.isFinite(radiusMiles) ? radiusMiles : null,
+          startDate: normalizedStart,
+          endDate,
           usingDefaultKey: !queryKey
         }
       });
     }
-    res
-      .status(response.status)
-      .type('application/json')
-      .send(text);
+    res.status(response.status).type('application/json').send(text);
   } catch (err) {
-    console.error('Ticketmaster fetch failed', err);
+    console.error('Songkick fetch failed', err);
     res.status(500).json({ error: 'failed' });
   }
 });
