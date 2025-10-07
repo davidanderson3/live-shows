@@ -4,6 +4,8 @@ const API_BASE_URL =
   (typeof window !== 'undefined' && window.location?.origin) ||
   'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
 
+const TARGET_NEARBY_RESULTS = 60;
+
 let initialized = false;
 let mapInstance = null;
 let mapMarkersLayer = null;
@@ -873,6 +875,10 @@ async function fetchRestaurants({ latitude, longitude, city, skipCoordinates = f
   const hasLatitude = Number.isFinite(parsedLatitude);
   const hasLongitude = Number.isFinite(parsedLongitude);
   const shouldIncludeCoords = !skipCoordinates && hasLatitude && hasLongitude;
+
+  if (Number.isFinite(TARGET_NEARBY_RESULTS) && TARGET_NEARBY_RESULTS > 0) {
+    params.set('limit', String(TARGET_NEARBY_RESULTS));
+  }
 
   if (shouldIncludeCoords) {
     params.set('latitude', String(parsedLatitude));
