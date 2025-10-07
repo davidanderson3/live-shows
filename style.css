@@ -3116,6 +3116,10 @@ h2 {
   gap: 0.65rem;
 }
 
+.restaurants-hidden-list[hidden] {
+  display: none;
+}
+
 .restaurants-hidden-item {
   display: flex;
   align-items: center;
