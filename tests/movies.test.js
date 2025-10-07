@@ -686,9 +686,15 @@ describe('initMoviesPanel', () => {
     };
     const genres = { genres: [] };
 
-    global.fetch = vi.fn()
+    global.fetch = vi
+      .fn()
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page) })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(empty) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify({ error: 'invalid_endpoint_params' }))
+      })
       .mockResolvedValueOnce({
         ok: false,
         status: 400,
@@ -699,13 +705,16 @@ describe('initMoviesPanel', () => {
 
     await initMoviesPanel();
 
-    expect(global.fetch).toHaveBeenCalledTimes(5);
+    expect(global.fetch).toHaveBeenCalledTimes(6);
     const firstCreditsUrl = String(global.fetch.mock.calls[2][0]);
-    const retryCreditsUrl = String(global.fetch.mock.calls[3][0]);
+    const secondCreditsUrl = String(global.fetch.mock.calls[3][0]);
+    const finalCreditsUrl = String(global.fetch.mock.calls[4][0]);
     expect(firstCreditsUrl).toContain('endpoint=credits');
     expect(firstCreditsUrl).toContain('movie_id=');
-    expect(retryCreditsUrl).toContain('endpoint=credits');
-    expect(retryCreditsUrl).toContain('movieId=');
+    expect(secondCreditsUrl).toContain('endpoint=credits');
+    expect(secondCreditsUrl).toContain('id=');
+    expect(finalCreditsUrl).toContain('endpoint=credits');
+    expect(finalCreditsUrl).toContain('movieId=');
 
     const listContent = document.getElementById('movieList')?.textContent || '';
     expect(listContent).toContain('Proxy Legacy Star');
