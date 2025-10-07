@@ -1577,6 +1577,21 @@ export async function initShowsPanel() {
     discoverBtn.addEventListener('click', handler);
   }
 
+  if (apiKeyInput) {
+    if (apiKeyInput._showsEnterHandler) {
+      apiKeyInput.removeEventListener('keydown', apiKeyInput._showsEnterHandler);
+    }
+    const handler = event => {
+      if (event.key === 'Enter' || event.key === 'NumpadEnter') {
+        event.preventDefault();
+        if (discoverBtnIsLoading) return;
+        loadShows({ triggeredByUser: true });
+      }
+    };
+    apiKeyInput._showsEnterHandler = handler;
+    apiKeyInput.addEventListener('keydown', handler);
+  }
+
   await loadShows();
 }
 

@@ -576,6 +576,35 @@ describe('initShowsPanel', () => {
     expect(fetch.mock.calls[2][0]).toContain('token=manualKey');
   });
 
+  it('allows submitting manual Eventbrite token via Enter key', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasEventbriteToken: false }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ name: 'Artist' }] }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeEventbriteResponse([
+            makeEventbriteEvent({ id: 'enter', name: 'Enter Show', artists: ['Artist'] })
+          ])
+      });
+
+    localStorage.setItem('spotifyToken', 'token');
+
+    await initShowsPanel();
+    await flush();
+
+    const input = document.getElementById('eventbriteApiToken');
+    input.value = 'enterKey';
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+    await flush();
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls[2][0]).toContain('/api/eventbrite');
+    expect(fetch.mock.calls[2][0]).toContain('token=enterKey');
+  });
+
   it('shows Spotify suggestions when no live shows are available', async () => {
     fetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ clientId: 'cid', hasEventbriteToken: true }) })
