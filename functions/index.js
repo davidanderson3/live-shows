@@ -140,14 +140,14 @@ const ALLOWED_ENDPOINTS = {
   tv_genres: { path: '/3/genre/tv/list' },
   credits: {
     path: query => {
-      const rawId = query?.movie_id;
+      const rawId = query?.movie_id ?? query?.id ?? query?.movieId;
       const value = Array.isArray(rawId) ? rawId[0] : rawId;
       if (!value && value !== 0) return null;
       const trimmed = String(value).trim();
       if (!trimmed) return null;
       return `/3/movie/${encodeURIComponent(trimmed)}/credits`;
     },
-    omitParams: ['movie_id']
+    omitParams: ['movie_id', 'movieId', 'id']
   },
   tv_credits: {
     path: query => {
@@ -162,14 +162,14 @@ const ALLOWED_ENDPOINTS = {
   },
   movie_details: {
     path: query => {
-      const rawId = query?.movie_id ?? query?.id;
+      const rawId = query?.movie_id ?? query?.id ?? query?.movieId;
       const value = Array.isArray(rawId) ? rawId[0] : rawId;
       if (!value && value !== 0) return null;
       const trimmed = String(value).trim();
       if (!trimmed) return null;
       return `/3/movie/${encodeURIComponent(trimmed)}`;
     },
-    omitParams: ['movie_id', 'id']
+    omitParams: ['movie_id', 'movieId', 'id']
   },
   tv_details: {
     path: query => {
