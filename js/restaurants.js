@@ -864,7 +864,7 @@ async function reverseGeocodeCity(latitude, longitude) {
   }
 }
 
-async function fetchRestaurants({ latitude, longitude, city }) {
+async function fetchRestaurants({ latitude, longitude, city, skipCoordinates = false }) {
   const params = new URLSearchParams();
   const parsedLatitude =
     typeof latitude === 'string' ? Number(latitude) : latitude;
@@ -872,8 +872,9 @@ async function fetchRestaurants({ latitude, longitude, city }) {
     typeof longitude === 'string' ? Number(longitude) : longitude;
   const hasLatitude = Number.isFinite(parsedLatitude);
   const hasLongitude = Number.isFinite(parsedLongitude);
+  const shouldIncludeCoords = !skipCoordinates && hasLatitude && hasLongitude;
 
-  if (hasLatitude && hasLongitude) {
+  if (shouldIncludeCoords) {
     params.set('latitude', String(parsedLatitude));
     params.set('longitude', String(parsedLongitude));
   }
@@ -936,7 +937,13 @@ async function loadNearbyRestaurants(container) {
     const { latitude, longitude } = position.coords;
     setUserLocation(latitude, longitude);
     const city = await reverseGeocodeCity(latitude, longitude);
-    const data = await fetchRestaurants({ latitude, longitude, city });
+    let data = await fetchRestaurants({ latitude, longitude, city });
+
+    if ((!Array.isArray(data) || data.length === 0) && city) {
+      renderMessage(targetContainer, 'Searching for more restaurants…');
+      data = await fetchRestaurants({ city, skipCoordinates: true });
+    }
+
     rawNearbyRestaurants = Array.isArray(data) ? data : [];
     updateNearbyRestaurants();
     isFetchingNearby = false;

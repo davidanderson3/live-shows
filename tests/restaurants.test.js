@@ -185,6 +185,57 @@ describe('initRestaurantsPanel', () => {
     expect(headings).toEqual(['Local Favorite', 'Distant Gem']);
   });
 
+  it('requests more restaurants when the initial search returns none', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const fallbackData = [
+      { name: 'Fallback Favorite', rating: 4.5, reviewCount: 120, distance: 900 },
+      { name: 'Backup Bistro', rating: 4.2, reviewCount: 80, distance: 1500 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(fallbackData)
+      });
+
+    await initRestaurantsPanel();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
+    expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
+    expect(fetch.mock.calls[2][0]).toContain('city=Austin');
+    expect(fetch.mock.calls[2][0]).not.toContain('latitude=');
+    expect(fetch.mock.calls[2][0]).not.toContain('longitude=');
+
+    const results = document.getElementById('restaurantsResults');
+    const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
+    expect(headings).toEqual(['Fallback Favorite', 'Backup Bistro']);
+  });
+
   it('uses user coordinates to sort by true distance even when API distances are misleading', async () => {
     const dom = setupDom();
     global.window = dom.window;
