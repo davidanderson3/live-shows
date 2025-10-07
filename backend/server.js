@@ -34,7 +34,7 @@ const EVENTBRITE_API_TOKEN =
   process.env.EVENTBRITE_API_TOKEN ||
   process.env.EVENTBRITE_OAUTH_TOKEN ||
   process.env.EVENTBRITE_TOKEN ||
-  '';
+  '2YR3RA4K6VCZVEUZMBG4';
 const HAS_EVENTBRITE_TOKEN = Boolean(EVENTBRITE_API_TOKEN);
 const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
 const YELP_CACHE_COLLECTION = 'yelpCache';

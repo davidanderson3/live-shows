@@ -164,7 +164,7 @@ function getEventbriteDefaultToken() {
   if (fromConfig && typeof fromConfig === 'object') {
     return fromConfig.token || fromConfig.key || fromConfig.oauth_token || null;
   }
-  return null;
+  return '2YR3RA4K6VCZVEUZMBG4';
 }
 
 function normalizeCoordinateFixed(value, digits = 3) {
