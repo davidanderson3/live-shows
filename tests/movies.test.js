@@ -661,6 +661,59 @@ describe('initMoviesPanel', () => {
     expect(listContent).toContain('Proxy Legacy Star');
   });
 
+  it('falls back to movie details when credits proxy endpoint is unavailable', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbProxyEndpoint = 'https://mock-functions.net/tmdbProxy';
+
+    const page = {
+      results: [
+        {
+          id: 451,
+          title: 'Fallback Feature',
+          release_date: '2024-07-04',
+          vote_average: 8.2,
+          vote_count: 180,
+          overview: 'Needs alternate credits path.',
+          genre_ids: []
+        }
+      ]
+    };
+    const empty = { results: [] };
+    const details = {
+      credits: {
+        cast: [{ name: 'Fallback Star' }],
+        crew: [{ job: 'Director', name: 'Fallback Director' }]
+      }
+    };
+    const genres = { genres: [] };
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(empty) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify({ error: 'unsupported_endpoint' }))
+      })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(details) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(genres) });
+
+    await initMoviesPanel();
+
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+    const creditsUrl = String(global.fetch.mock.calls[2][0]);
+    expect(creditsUrl).toContain('endpoint=credits');
+    const detailsUrl = String(global.fetch.mock.calls[3][0]);
+    expect(detailsUrl).toContain('endpoint=movie_details');
+    expect(detailsUrl).toContain('append_to_response=credits');
+
+    const listContent = document.getElementById('movieList')?.textContent || '';
+    expect(listContent).toContain('Fallback Star');
+    expect(listContent).toContain('Fallback Director');
+  });
+
   it('moves watched movies to the watched list and allows removal', async () => {
     const dom = buildDom();
     attachWindow(dom);

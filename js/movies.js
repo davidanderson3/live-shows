@@ -19,6 +19,7 @@ const DEFAULT_TMDB_PROXY_ENDPOINT =
 
 let proxyDisabled = false;
 const unsupportedProxyEndpoints = new Set();
+let loggedProxyCreditsUnsupported = false;
 
 const SUPPRESSED_STATUSES = new Set(['watched', 'notInterested', 'interested']);
 
@@ -453,6 +454,13 @@ function summarizeProxyError(error) {
   }
 
   return parts.join(', ');
+}
+
+function isProxyParameterError(err) {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+  return err.code === 'unsupported_endpoint' || err.code === 'invalid_endpoint_params';
 }
 
 async function callTmdbProxy(endpoint, params = {}) {
@@ -925,25 +933,74 @@ async function fetchCreditsFromProxy(movieId) {
   }
 }
 
+async function fetchCreditsViaDetailsFromProxy(movieId) {
+  const details = await callTmdbProxy('movie_details', {
+    movie_id: movieId,
+    append_to_response: 'credits'
+  });
+  if (details && typeof details === 'object' && details.credits) {
+    return details.credits;
+  }
+  return null;
+}
+
 async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
   if (!movieId) return null;
-  if (usingProxy && isProxyEndpointSupported('credits')) {
+  const proxyEndpoint = getTmdbProxyEndpoint();
+  const proxyAvailable = usingProxy && Boolean(proxyEndpoint);
+  let needsDetailsFallback =
+    proxyAvailable && !isProxyEndpointSupported('credits') && isProxyEndpointSupported('movie_details');
+
+  if (proxyAvailable && isProxyEndpointSupported('credits')) {
     try {
       const credits = await fetchCreditsFromProxy(movieId);
       if (credits) {
         return credits;
       }
     } catch (err) {
-      console.warn(
-        `TMDB proxy credits request failed (${summarizeProxyError(err)}), attempting direct fallback`,
-        err
-      );
-      if (!err || (err.code !== 'unsupported_endpoint' && err.code !== 'invalid_endpoint_params')) {
+      const summary = summarizeProxyError(err);
+      if (isProxyParameterError(err)) {
+        needsDetailsFallback =
+          proxyAvailable && isProxyEndpointSupported('movie_details');
+        if (!loggedProxyCreditsUnsupported) {
+          console.info(
+            `TMDB proxy credits endpoint unavailable (${summary}), attempting movie_details fallback.`
+          );
+          loggedProxyCreditsUnsupported = true;
+        }
+      } else {
+        console.warn(
+          `TMDB proxy credits request failed (${summary}), attempting direct fallback`,
+          err
+        );
         disableTmdbProxy();
+        const direct = await fetchCreditsDirect(movieId, apiKey);
+        if (direct) return direct;
+        return null;
       }
-      const direct = await fetchCreditsDirect(movieId, apiKey);
-      if (direct) return direct;
-      return null;
+    }
+  }
+
+  if (proxyAvailable && needsDetailsFallback && isProxyEndpointSupported('movie_details')) {
+    try {
+      const credits = await fetchCreditsViaDetailsFromProxy(movieId);
+      if (credits) {
+        return credits;
+      }
+    } catch (err) {
+      const summary = summarizeProxyError(err);
+      if (isProxyParameterError(err)) {
+        // Swallow and fall back to direct fetching below.
+      } else {
+        console.warn(
+          `TMDB proxy movie details request failed (${summary}), attempting direct fallback`,
+          err
+        );
+        disableTmdbProxy();
+        const direct = await fetchCreditsDirect(movieId, apiKey);
+        if (direct) return direct;
+        return null;
+      }
     }
   }
 
