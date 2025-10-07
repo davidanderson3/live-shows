@@ -1,13 +1,10 @@
-const API_BASE_URL =
-  (typeof window !== 'undefined' && window.apiBaseUrl) ||
-  (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
-  (typeof window !== 'undefined' ? window.location.origin : '');
+import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
 
 const DEFAULT_EVENTBRITE_ENDPOINT =
   (typeof process !== 'undefined' &&
     process.env &&
     (process.env.EVENTBRITE_ENDPOINT || process.env.EVENTBRITE_PROXY_ENDPOINT)) ||
-  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/eventbriteProxy';
+  `${DEFAULT_REMOTE_API_BASE}/eventbriteProxy`;
 
 function normalizeEndpoint(value) {
   return typeof value === 'string' ? value.trim() : '';

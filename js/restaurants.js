@@ -1,8 +1,6 @@
-const API_BASE_URL =
-  (typeof window !== 'undefined' && window.apiBaseUrl) ||
-  (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
-  (typeof window !== 'undefined' && window.location?.origin) ||
-  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
+import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
+
+const FALLBACK_API_BASE = DEFAULT_REMOTE_API_BASE;
 
 const TARGET_NEARBY_RESULTS = 60;
 
@@ -38,7 +36,8 @@ function buildRestaurantsUrl(params) {
   const rawBase =
     API_BASE_URL && API_BASE_URL !== 'null' ? API_BASE_URL : '';
   if (!rawBase) {
-    return `/api/restaurants?${query}`;
+    const fallbackBase = FALLBACK_API_BASE.replace(/\/$/, '');
+    return `${fallbackBase}/restaurantsProxy?${query}`;
   }
   const trimmedBase = rawBase.replace(/\/$/, '');
   if (trimmedBase.endsWith('/api/restaurants') || trimmedBase.endsWith('/restaurantsProxy')) {

@@ -1,10 +1,5 @@
 import { getCurrentUser, awaitAuthUser, db } from './auth.js';
-
-const API_BASE_URL =
-  (typeof window !== 'undefined' && window.apiBaseUrl) ||
-  (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
-  (typeof window !== 'undefined' && window.location?.origin) ||
-  '';
+import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
 
 const MOVIE_PREFS_KEY = 'moviePreferences';
 const API_KEY_STORAGE = 'moviesApiKey';
@@ -21,7 +16,7 @@ const MIN_FEED_RESULTS = 10;
 
 const DEFAULT_TMDB_PROXY_ENDPOINT =
   (typeof process !== 'undefined' && process.env && process.env.TMDB_PROXY_ENDPOINT) ||
-  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net/tmdbProxy';
+  `${DEFAULT_REMOTE_API_BASE}/tmdbProxy`;
 
 let proxyDisabled = false;
 const unsupportedProxyEndpoints = new Set();
