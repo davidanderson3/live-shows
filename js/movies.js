@@ -65,6 +65,7 @@ let activeUserId = null;
 const activeInterestedGenres = new Set();
 let refillInProgress = false;
 let lastRefillAttempt = 0;
+let pendingRefillCooldownTimer = null;
 let feedExhausted = false;
 let watchedSortMode = 'recent';
 let activeInterestedGenre = null;
@@ -1214,7 +1215,17 @@ async function requestAdditionalMovies() {
     updateFeedStatus(`Waiting ${waitSeconds}s before requesting more movies...`, {
       tone: 'info'
     });
+    if (!pendingRefillCooldownTimer) {
+      pendingRefillCooldownTimer = setTimeout(() => {
+        pendingRefillCooldownTimer = null;
+        requestAdditionalMovies();
+      }, waitMs);
+    }
     return;
+  }
+  if (pendingRefillCooldownTimer) {
+    clearTimeout(pendingRefillCooldownTimer);
+    pendingRefillCooldownTimer = null;
   }
   refillInProgress = true;
   lastRefillAttempt = now;
