@@ -3305,6 +3305,12 @@ h2 {
   font-weight: 500;
 }
 
+.recipe-card__ingredients-empty {
+  margin: 0;
+  color: #544c3a;
+  font-style: italic;
+}
+
 .recipe-card__ingredients,
 .recipe-card__steps {
   margin: 0;

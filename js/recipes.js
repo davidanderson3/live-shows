@@ -128,7 +128,10 @@ const toInstructionSteps = r => {
 const toIngredientList = r => {
   const ordered = [];
   const unique = new Set();
+  let hadData = false;
   const pushItems = items => {
+    if (!Array.isArray(items) || !items.length) return;
+    let added = false;
     items.forEach(text => {
       const normalized = stripHtml(text || '');
       if (!normalized) return;
@@ -136,7 +139,9 @@ const toIngredientList = r => {
       if (!trimmed || unique.has(trimmed.toLowerCase())) return;
       unique.add(trimmed.toLowerCase());
       ordered.push(trimmed);
+      added = true;
     });
+    if (added) hadData = true;
   };
 
   if (Array.isArray(r.extendedIngredients)) {
@@ -161,7 +166,11 @@ const toIngredientList = r => {
           .split(/,|•|\u2022/)
           .map(text => text.trim())
           .filter(Boolean);
-        pushItems(bullets.length ? bullets : [trimmed]);
+        if (bullets.length) {
+          pushItems(bullets);
+        } else {
+          pushItems([trimmed]);
+        }
       }
     }
   }
@@ -191,14 +200,18 @@ const toIngredientList = r => {
   }
 
   if (typeof r.nutrition?.ingredientList === 'string') {
-    const list = r.nutrition.ingredientList
+    const normalized = stripHtml(r.nutrition.ingredientList);
+    const list = normalized
       .split(/\r?\n+/)
       .map(text => text.trim())
       .filter(Boolean);
     pushItems(list);
   }
 
-  return ordered;
+  return {
+    items: ordered,
+    hadData
+  };
 };
 
 const normalizeResults = payload => {
@@ -290,7 +303,7 @@ export async function initRecipesPanel() {
         });
       const recipes = sortedResults.map(({ result }) => {
         const instructions = toInstructionSteps(result);
-        const ingredients = toIngredientList(result);
+        const { items: ingredients, hadData: ingredientsAvailable } = toIngredientList(result);
         const summary = stripHtml(result.summary) || instructions[0] || '';
         const facts = buildFactEntries(result);
         const tagGroups = buildTagGroups(result);
@@ -314,6 +327,7 @@ export async function initRecipesPanel() {
           image: result.image || '',
           summary,
           ingredients,
+          ingredientsAvailable,
           instructions,
           facts,
           tagGroups,
@@ -420,6 +434,11 @@ export async function initRecipesPanel() {
             ? `Key ingredients: ${previewText}\u2026`
             : `Key ingredients: ${previewText}`;
           card.appendChild(preview);
+        } else if (!recipe.ingredientsAvailable) {
+          const preview = document.createElement('p');
+          preview.className = 'recipe-card__ingredient-preview';
+          preview.textContent = 'Ingredients were not provided for this recipe.';
+          card.appendChild(preview);
         }
 
         if (recipe.summary) {
@@ -519,6 +538,18 @@ export async function initRecipesPanel() {
             list.appendChild(ingItem);
           });
           section.appendChild(list);
+          card.appendChild(section);
+        } else if (!recipe.ingredientsAvailable) {
+          const section = document.createElement('section');
+          section.className = 'recipe-card__section';
+          const heading = document.createElement('h4');
+          heading.className = 'recipe-card__section-title';
+          heading.textContent = 'Ingredients';
+          section.appendChild(heading);
+          const message = document.createElement('p');
+          message.className = 'recipe-card__ingredients-empty';
+          message.textContent = 'We couldn\'t retrieve the ingredient list for this recipe.';
+          section.appendChild(message);
           card.appendChild(section);
         }
 
