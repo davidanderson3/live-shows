@@ -1069,6 +1069,19 @@ export async function initShowsPanel() {
   const artistLimitInput = document.getElementById('showsArtistLimit');
   const includeSuggestionsInput = document.getElementById('showsIncludeSuggestions');
 
+  const renderShowsMessage = (message, { allowMarkup = false } = {}) => {
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const messageEl = document.createElement('p');
+    messageEl.className = 'shows-empty';
+    if (allowMarkup) {
+      messageEl.innerHTML = message;
+    } else {
+      messageEl.textContent = message;
+    }
+    listEl.appendChild(messageEl);
+  };
+
   const getStoredSpotifyToken = () =>
     (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
 
@@ -1184,7 +1197,7 @@ export async function initShowsPanel() {
   }
   if (!spotifyClientId) {
     if (listEl && !listEl.textContent) {
-      listEl.textContent = 'Spotify client ID not configured.';
+      renderShowsMessage('Spotify client ID not configured.');
     }
     if (interestedListEl && !interestedListEl.childElementCount) {
       interestedListEl.innerHTML = '';
@@ -1222,7 +1235,7 @@ export async function initShowsPanel() {
 
   const startAuth = async () => {
     if (!spotifyClientId) {
-      listEl.textContent = 'Spotify client ID not configured.';
+      renderShowsMessage('Spotify client ID not configured.');
       if (interestedListEl) {
         interestedListEl.innerHTML = '';
         const warning = document.createElement('p');
@@ -1320,7 +1333,7 @@ export async function initShowsPanel() {
     if (requiresManualToken && !manualApiToken) {
       currentShows = [];
       currentSuggestions = [];
-      listEl.textContent = 'Please enter your Eventbrite API token.';
+      renderShowsMessage('Please enter your Eventbrite API token.');
       stopLoading();
       return;
     }
@@ -1501,10 +1514,50 @@ export async function initShowsPanel() {
         listEl.innerHTML =
           '<p class="shows-empty">The Eventbrite search route is missing. Start the local backend (npm start) so /api/eventbrite is available.</p>';
       } else if (err?.status === 401) {
-        listEl.innerHTML =
-          '<p class="shows-empty">Eventbrite rejected the token. Enter your personal OAuth token (a.k.a. private token) from Eventbrite account settings.</p>';
+        renderShowsMessage(
+          'Eventbrite rejected the token. Enter your personal OAuth token (a.k.a. private token) from Eventbrite account settings.'
+        );
       } else {
-        listEl.textContent = 'Failed to load shows.';
+        let fallbackMessage = 'Failed to load shows.';
+        let responseText = '';
+        if (typeof err?.responseText === 'string' && err.responseText.trim()) {
+          responseText = err.responseText.trim();
+        }
+        if (!responseText && typeof err?.message === 'string' && err.message.trim()) {
+          responseText = err.message.trim();
+        }
+
+        if (responseText) {
+          let parsedMessage = '';
+          try {
+            const parsed = JSON.parse(responseText);
+            if (parsed && typeof parsed.error === 'string') {
+              parsedMessage = parsed.error;
+            } else if (Array.isArray(parsed?.errors) && parsed.errors.length) {
+              const firstError = parsed.errors.find(e => typeof e?.message === 'string');
+              if (firstError) {
+                parsedMessage = firstError.message;
+              }
+            }
+          } catch {
+            parsedMessage = responseText;
+          }
+
+          if (parsedMessage) {
+            responseText = parsedMessage;
+          }
+
+          if (/missing eventbrite api token/i.test(responseText)) {
+            fallbackMessage = 'Eventbrite API token missing. Enter your personal token above to continue.';
+          } else if (/failed to fetch|network error/i.test(responseText)) {
+            fallbackMessage =
+              'Unable to reach the live music service. Start the backend (npm start) or check your connection.';
+          } else {
+            fallbackMessage = responseText.slice(0, 200);
+          }
+        }
+
+        renderShowsMessage(fallbackMessage);
       }
     } finally {
       stopLoading();
