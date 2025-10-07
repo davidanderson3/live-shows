@@ -33,6 +33,7 @@ function buildDom() {
         <input id="movieFilterEndYear" type="number" />
         <select id="movieFilterGenre"></select>
       </div>
+      <div id="movieStatus" class="movie-status"></div>
       <div id="movieList"></div>
     </div>
     <div id="savedMoviesSection" style="display:none">
@@ -67,6 +68,7 @@ function mockLocalStorage() {
 function attachWindow(dom) {
   global.window = dom.window;
   global.document = dom.window.document;
+  window.tmdbProxyEndpoint = '';
   Object.defineProperty(window, 'localStorage', {
     configurable: true,
     get: () => global.localStorage
@@ -167,6 +169,54 @@ describe('initMoviesPanel', () => {
 
     const img = card.querySelector('img');
     expect(img?.src).toContain('https://image.tmdb.org/t/p/w200/poster.jpg');
+
+    const statusText = document.getElementById('movieStatus')?.textContent || '';
+    expect(statusText).toContain('1 fetched, 1 available after filters');
+  });
+
+  it('provides guidance when TMDB API key is missing', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+
+    const originalVitest = process.env.VITEST;
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    try {
+      await initMoviesPanel();
+    } finally {
+      if (originalVitest === undefined) {
+        delete process.env.VITEST;
+      } else {
+        process.env.VITEST = originalVitest;
+      }
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    }
+
+    const listText = document.getElementById('movieList')?.innerHTML || '';
+    expect(listText).toContain('TMDB API key not provided');
+    const statusText = document.getElementById('movieStatus')?.textContent || '';
+    expect(statusText).toBe(
+      'TMDB API key not provided. Enter a key or enable the proxy to load movies.'
+    );
+  });
+
+  it('reports failure details when TMDB request fails', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'FAIL_KEY';
+
+    configureFetchResponses([{ ok: false }]);
+
+    await initMoviesPanel();
+
+    const statusText = document.getElementById('movieStatus')?.textContent || '';
+    expect(statusText).toBe('Attempt 1 via TMDB API failed: Failed to fetch movies.');
   });
 
   it('filters out movies below rating or vote thresholds', async () => {
