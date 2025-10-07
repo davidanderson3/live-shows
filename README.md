@@ -136,7 +136,7 @@ Remember to also configure Firebase (see `firebase.json` and `.firebaserc`) if y
 ## Troubleshooting Checklist
 - **Spotify login issues** – confirm the redirect URI configured in your Spotify developer dashboard matches the origin and that you requested the correct scopes (`user-top-read` plus `user-library-read` if you enable liked-artist mode).
 - **Empty Discover results** – verify your Eventbrite token is present and that the search radius encompasses nearby venues; the UI will also display the last error returned by the Eventbrite API.
-- **`Cannot GET /api/eventbrite`** – start the Express server (`npm start`) or point `API_BASE_URL` at the deployed proxy so the Discover tab can reach `/api/eventbrite`.
+- **`Cannot GET /api/eventbrite`** – point `API_BASE_URL` at the deployed Firebase Functions proxy (or start the Express server with `npm start`) so the Discover tab can reach the Eventbrite search endpoint.
 - **Spoonacular quota errors** – the proxy caches responses for six hours; if you keep seeing rate-limit messages clear the cache collection in Firestore or wait for the TTL to expire.
 - **Firestore permission denials** – authenticate with Google using the Sign In button; most persistence features require a logged-in user.
 - **Yelp proxy failures** – ensure the `x-api-key` header or `YELP_API_KEY` env var is set. The API returns `missing yelp api key` if not.
