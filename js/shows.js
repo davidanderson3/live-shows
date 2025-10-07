@@ -1501,17 +1501,43 @@ export async function initShowsPanel() {
         const primaryUrl = appendQuery(eventbriteEndpoint, params);
         const fallbackUrl = fallbackEndpoint ? appendQuery(fallbackEndpoint, params) : null;
 
-        let res;
+        let res = null;
+        let primaryError = null;
         try {
           res = await fetch(primaryUrl);
-          if (!res.ok && res.status === 404 && fallbackUrl) {
-            res = await fetch(fallbackUrl);
-          }
         } catch (err) {
-          if (!fallbackUrl) {
-            throw err;
+          primaryError = err;
+        }
+
+        let shouldUseFallback = false;
+        if (fallbackUrl) {
+          if (!res) {
+            shouldUseFallback = true;
+          } else if (!res.ok && res.status === 404) {
+            const headerValue =
+              typeof res.headers?.get === 'function'
+                ? res.headers.get('content-type')
+                : typeof res.headers?.['content-type'] === 'string'
+                  ? res.headers['content-type']
+                  : '';
+            const contentType = String(headerValue || '');
+            if (!/json/i.test(contentType)) {
+              shouldUseFallback = true;
+            }
           }
-          res = await fetch(fallbackUrl);
+        }
+
+        if (shouldUseFallback) {
+          try {
+            res = await fetch(fallbackUrl);
+          } catch (fallbackErr) {
+            if (primaryError) {
+              throw primaryError;
+            }
+            throw fallbackErr;
+          }
+        } else if (!res) {
+          throw primaryError || new Error('Failed to fetch Eventbrite data');
         }
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
