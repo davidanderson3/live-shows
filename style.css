@@ -3036,10 +3036,33 @@ h2 {
   display: flex;
 }
 
-.restaurants-hidden h4 {
+.restaurants-hidden-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin: 0;
+  padding: 0.1rem 0;
   font-size: 1rem;
+  font-weight: 600;
   color: #1f3631;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.restaurants-hidden-toggle:focus-visible {
+  outline: 2px solid rgba(31, 54, 49, 0.35);
+  outline-offset: 2px;
+}
+
+.restaurants-hidden-toggle-icon {
+  transition: transform 0.2s ease;
+}
+
+.restaurants-hidden-toggle[aria-expanded='true'] .restaurants-hidden-toggle-icon {
+  transform: rotate(90deg);
 }
 
 .restaurants-hidden-list {

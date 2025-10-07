@@ -399,7 +399,19 @@ describe('initRestaurantsPanel', () => {
     expect(nearbyHeadings).toEqual(['Second Place']);
 
     const hiddenSection = document.getElementById('restaurantsHiddenSection');
-    expect(hiddenSection?.textContent).toContain('Top Rated');
     expect(hiddenSection?.classList.contains('is-visible')).toBe(true);
+
+    const toggle = hiddenSection?.querySelector('.restaurants-hidden-toggle');
+    expect(toggle?.textContent).toContain('Hidden Restaurants (1)');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    toggle?.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+    const expandedToggle = hiddenSection?.querySelector('.restaurants-hidden-toggle');
+    expect(expandedToggle?.getAttribute('aria-expanded')).toBe('true');
+
+    const list = hiddenSection?.querySelector('.restaurants-hidden-list');
+    expect(list?.hidden).toBe(false);
+    expect(list?.textContent).toContain('Top Rated');
   });
 });
