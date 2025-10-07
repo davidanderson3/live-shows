@@ -171,7 +171,8 @@ describe('initMoviesPanel', () => {
     expect(img?.src).toContain('https://image.tmdb.org/t/p/w200/poster.jpg');
 
     const statusText = document.getElementById('movieStatus')?.textContent || '';
-    expect(statusText).toContain('1 fetched, 1 available after filters');
+    expect(statusText).toContain('Loaded 1 movie on attempt 1');
+    expect(statusText).toContain('1 match your current filters');
   });
 
   it('provides guidance when TMDB API key is missing', async () => {
@@ -216,7 +217,9 @@ describe('initMoviesPanel', () => {
     await initMoviesPanel();
 
     const statusText = document.getElementById('movieStatus')?.textContent || '';
-    expect(statusText).toBe('Attempt 1 via TMDB API failed: Failed to fetch movies.');
+    expect(statusText).toBe(
+      'Attempt 1 using the direct TMDB API failed (Failed to fetch movies). No movies were loaded. Check your TMDB API key and try again.'
+    );
   });
 
   it('filters out movies below rating or vote thresholds', async () => {

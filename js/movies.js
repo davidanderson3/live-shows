@@ -1872,9 +1872,17 @@ async function loadMovies({ attemptStart } = {}) {
   const startedLabel = formatTimestamp(
     Number.isFinite(attemptStart) ? attemptStart : Date.now()
   );
-  const sourceLabel = usingProxy ? 'TMDB proxy' : 'TMDB API';
+  const sourceLabel = usingProxy ? 'TMDB proxy service' : 'direct TMDB API';
+  const attemptIntro = usingProxy
+    ? 'Reaching out to the TMDB proxy service with your saved preferences.'
+    : 'Contacting TMDB directly using your API key.';
+  const fallbackNote = usingProxy
+    ? ' If this route fails we will automatically switch to your TMDB API key.'
+    : '';
   updateFeedStatus(
-    `Attempt ${attemptNumber} started${startedLabel ? ` at ${startedLabel}` : ''} via ${sourceLabel}...`,
+    `Loading movies (attempt ${attemptNumber})${
+      startedLabel ? ` started at ${startedLabel}` : ''
+    }. ${attemptIntro}${fallbackNote}`,
     { tone: 'info' }
   );
 
@@ -1892,16 +1900,20 @@ async function loadMovies({ attemptStart } = {}) {
     const availableCount = getFeedMovies(currentMovies).length;
     const completedLabel = formatTimestamp(Date.now());
     updateFeedStatus(
-      `Attempt ${attemptNumber} completed${completedLabel ? ` at ${completedLabel}` : ''} via ${sourceLabel}: ${
-        movies.length
-      } fetched, ${availableCount} available after filters.`,
+      `Loaded ${movies.length} movie${movies.length === 1 ? '' : 's'} on attempt ${attemptNumber}${
+        completedLabel ? ` at ${completedLabel}` : ''
+      } using the ${sourceLabel}. ${availableCount} ${
+        availableCount === 1 ? 'match' : 'matches'
+      } your current filters.`,
       { tone: availableCount ? 'success' : 'warning' }
     );
   } catch (err) {
     if (usingProxy) {
       console.warn('TMDB proxy unavailable, falling back to direct API', err);
       updateFeedStatus(
-        `Attempt ${attemptNumber} via TMDB proxy failed: ${summarizeProxyError(err)}. Trying direct API...`,
+        `Attempt ${attemptNumber} using the TMDB proxy service failed (${summarizeProxyError(
+          err
+        )}). Switching to your direct TMDB API key.`,
         { tone: 'warning' }
       );
       disableTmdbProxy();
@@ -1920,7 +1932,9 @@ async function loadMovies({ attemptStart } = {}) {
     console.error('Failed to load movies', err);
     listEl.textContent = 'Failed to load movies.';
     updateFeedStatus(
-      `Attempt ${attemptNumber} via ${sourceLabel} failed: ${summarizeError(err)}.`,
+      `Attempt ${attemptNumber} using the ${sourceLabel} failed (${summarizeError(
+        err
+      )}). No movies were loaded. Check your TMDB API key and try again.`,
       { tone: 'error' }
     );
   }
