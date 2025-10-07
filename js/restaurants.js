@@ -119,7 +119,9 @@ function writeStoredList(key, list) {
 }
 
 function loadStoredState() {
-  savedRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.saved));
+  savedRestaurants = sortByDistance(
+    dedupeRestaurants(readStoredList(STORAGE_KEYS.saved))
+  );
   hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
 }
 
@@ -144,7 +146,7 @@ function isHidden(id) {
 }
 
 function setSavedRestaurants(items) {
-  savedRestaurants = dedupeRestaurants(items);
+  savedRestaurants = sortByDistance(dedupeRestaurants(items));
   persistSaved();
 }
 
