@@ -962,22 +962,36 @@ async function fetchCreditsDirect(movieId, apiKey) {
 }
 
 async function fetchCreditsFromProxy(movieId) {
-  try {
-    return await callTmdbProxy('credits', { movie_id: movieId });
-  } catch (err) {
-    if (!err || err.code !== 'invalid_endpoint_params') {
-      throw err;
-    }
+  if (!movieId && movieId !== 0) return null;
 
+  const paramVariants = [{ movie_id: movieId }, { id: movieId }, { movieId }];
+  let lastParamError = null;
+
+  for (const params of paramVariants) {
     try {
-      return await callTmdbProxy('credits', { movieId });
-    } catch (legacyErr) {
-      if (legacyErr && legacyErr.code === 'invalid_endpoint_params') {
-        unsupportedProxyEndpoints.add('credits');
+      const credits = await callTmdbProxy('credits', params);
+      if (credits) {
+        return credits;
       }
-      throw legacyErr;
+      return null;
+    } catch (err) {
+      if (!isProxyParameterError(err)) {
+        throw err;
+      }
+      if (err && err.code === 'unsupported_endpoint') {
+        unsupportedProxyEndpoints.add('credits');
+        throw err;
+      }
+      lastParamError = err;
     }
   }
+
+  if (lastParamError) {
+    unsupportedProxyEndpoints.add('credits');
+    throw lastParamError;
+  }
+
+  return null;
 }
 
 async function fetchCreditsViaDetailsFromProxy(movieId) {
