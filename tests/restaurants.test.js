@@ -78,6 +78,7 @@ describe('initRestaurantsPanel', () => {
     expect(fetch.mock.calls[0][0]).toContain('reverse');
     expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
     expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
+    expect(fetch.mock.calls[1][0]).toContain('limit=60');
     expect(fetch.mock.calls[1][0]).toContain('city=Austin');
 
     const results = document.getElementById('restaurantsResults');
@@ -227,7 +228,9 @@ describe('initRestaurantsPanel', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
     expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
+    expect(fetch.mock.calls[1][0]).toContain('limit=60');
     expect(fetch.mock.calls[2][0]).toContain('city=Austin');
+    expect(fetch.mock.calls[2][0]).toContain('limit=60');
     expect(fetch.mock.calls[2][0]).not.toContain('latitude=');
     expect(fetch.mock.calls[2][0]).not.toContain('longitude=');
 
