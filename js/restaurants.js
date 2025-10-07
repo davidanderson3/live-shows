@@ -3,6 +3,8 @@ import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
 const FALLBACK_API_BASE = DEFAULT_REMOTE_API_BASE;
 
 const TARGET_NEARBY_RESULTS = 60;
+const MAX_NEARBY_RESULTS = 200;
+const NEARBY_RESULTS_INCREMENT = 40;
 
 let initialized = false;
 let mapInstance = null;
@@ -19,6 +21,8 @@ let isHiddenRestaurantsExpanded = false;
 let nearbyRestaurants = [];
 let visibleNearbyRestaurants = [];
 let rawNearbyRestaurants = [];
+let requestedNearbyLimit = TARGET_NEARBY_RESULTS;
+let lastNearbyFetchOptions = null;
 let currentView = 'nearby';
 let isFetchingNearby = false;
 let userLocation = null;
@@ -50,6 +54,13 @@ function buildRestaurantsUrl(params) {
     return `${trimmedBase}/restaurantsProxy?${query}`;
   }
   return `${trimmedBase}/api/restaurants?${query}`;
+}
+
+function resolveNearbyLimit(limit) {
+  const raw = typeof limit === 'string' ? Number(limit) : limit;
+  const numeric = Number.isFinite(raw) ? Math.floor(raw) : TARGET_NEARBY_RESULTS;
+  if (numeric <= 0) return TARGET_NEARBY_RESULTS;
+  return Math.min(numeric, MAX_NEARBY_RESULTS);
 }
 
 function normalizeId(value) {
@@ -729,6 +740,42 @@ function renderRestaurantsList(container, items, emptyMessage) {
   container.appendChild(grid);
 }
 
+function shouldRequestMoreNearby() {
+  if (!lastNearbyFetchOptions) return false;
+  if (!Array.isArray(rawNearbyRestaurants) || !rawNearbyRestaurants.length) {
+    return false;
+  }
+  if (requestedNearbyLimit >= MAX_NEARBY_RESULTS) return false;
+  if (rawNearbyRestaurants.length < requestedNearbyLimit) return false;
+  return true;
+}
+
+async function requestAdditionalNearbyRestaurants() {
+  if (isFetchingNearby) return;
+  if (!shouldRequestMoreNearby()) return;
+  if (!lastNearbyFetchOptions) return;
+
+  const nextLimit = resolveNearbyLimit(requestedNearbyLimit + NEARBY_RESULTS_INCREMENT);
+  if (nextLimit <= requestedNearbyLimit) return;
+
+  isFetchingNearby = true;
+
+  try {
+    const options = { ...lastNearbyFetchOptions };
+    const data = await fetchRestaurants({ ...options, limit: nextLimit });
+    requestedNearbyLimit = nextLimit;
+    if (Array.isArray(data)) {
+      rawNearbyRestaurants = data;
+      updateNearbyRestaurants();
+    }
+  } catch (err) {
+    console.error('Additional restaurant search failed', err);
+  } finally {
+    isFetchingNearby = false;
+    renderAll();
+  }
+}
+
 function renderNearbySection() {
   const container = domRefs.nearbyContainer;
   if (!container) return;
@@ -736,7 +783,20 @@ function renderNearbySection() {
   visibleNearbyRestaurants = nearbyRestaurants.filter(
     rest => !isHidden(rest.id) && !isSaved(rest.id)
   );
-  const emptyMessage = 'No restaurants found.';
+  const shouldLoadMore =
+    !visibleNearbyRestaurants.length &&
+    !isFetchingNearby &&
+    shouldRequestMoreNearby();
+
+  if (shouldLoadMore) {
+    requestAdditionalNearbyRestaurants();
+    renderRestaurantsList(container, [], 'Searching for more restaurants…');
+    return;
+  }
+
+  const emptyMessage = isFetchingNearby
+    ? 'Searching for more restaurants…'
+    : 'No restaurants found.';
   renderRestaurantsList(container, visibleNearbyRestaurants, emptyMessage);
 }
 
@@ -883,7 +943,13 @@ async function reverseGeocodeCity(latitude, longitude) {
   }
 }
 
-async function fetchRestaurants({ latitude, longitude, city, skipCoordinates = false }) {
+async function fetchRestaurants({
+  latitude,
+  longitude,
+  city,
+  skipCoordinates = false,
+  limit
+}) {
   const params = new URLSearchParams();
   const parsedLatitude =
     typeof latitude === 'string' ? Number(latitude) : latitude;
@@ -893,8 +959,9 @@ async function fetchRestaurants({ latitude, longitude, city, skipCoordinates = f
   const hasLongitude = Number.isFinite(parsedLongitude);
   const shouldIncludeCoords = !skipCoordinates && hasLatitude && hasLongitude;
 
-  if (Number.isFinite(TARGET_NEARBY_RESULTS) && TARGET_NEARBY_RESULTS > 0) {
-    params.set('limit', String(TARGET_NEARBY_RESULTS));
+  const effectiveLimit = resolveNearbyLimit(limit);
+  if (Number.isFinite(effectiveLimit) && effectiveLimit > 0) {
+    params.set('limit', String(effectiveLimit));
   }
 
   if (shouldIncludeCoords) {
@@ -931,6 +998,8 @@ async function loadNearbyRestaurants(container) {
   if (!targetContainer) return;
 
   isFetchingNearby = true;
+  requestedNearbyLimit = TARGET_NEARBY_RESULTS;
+  lastNearbyFetchOptions = null;
   renderMessage(targetContainer, 'Requesting your location…');
   clearMap();
   clearUserLocation();
@@ -960,14 +1029,19 @@ async function loadNearbyRestaurants(container) {
     const { latitude, longitude } = position.coords;
     setUserLocation(latitude, longitude);
     const city = await reverseGeocodeCity(latitude, longitude);
-    let data = await fetchRestaurants({ latitude, longitude, city });
+    const initialLimit = resolveNearbyLimit(requestedNearbyLimit);
+    let fetchOptions = { latitude, longitude, city, skipCoordinates: false };
+    let data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
 
     if ((!Array.isArray(data) || data.length === 0) && city) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
-      data = await fetchRestaurants({ city, skipCoordinates: true });
+      fetchOptions = { latitude, longitude, city, skipCoordinates: true };
+      data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
     }
 
     rawNearbyRestaurants = Array.isArray(data) ? data : [];
+    requestedNearbyLimit = initialLimit;
+    lastNearbyFetchOptions = fetchOptions;
     updateNearbyRestaurants();
     isFetchingNearby = false;
     renderAll();
@@ -978,6 +1052,8 @@ async function loadNearbyRestaurants(container) {
     nearbyRestaurants = [];
     visibleNearbyRestaurants = [];
     clearUserLocation();
+    requestedNearbyLimit = TARGET_NEARBY_RESULTS;
+    lastNearbyFetchOptions = null;
     const message = err?.message || 'Failed to load restaurants.';
     renderMessage(targetContainer, message);
     renderSavedSection();
