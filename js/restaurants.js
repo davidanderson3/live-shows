@@ -1,7 +1,8 @@
 const API_BASE_URL =
   (typeof window !== 'undefined' && window.apiBaseUrl) ||
   (typeof process !== 'undefined' && process.env.API_BASE_URL) ||
-  (typeof window !== 'undefined' ? window.location.origin : '');
+  (typeof window !== 'undefined' && window.location?.origin) ||
+  'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
 
 let initialized = false;
 let mapInstance = null;
@@ -28,6 +29,26 @@ const domRefs = {
 };
 
 const MAX_DISTANCE_METERS = 160934; // ~100 miles
+
+function buildRestaurantsUrl(params) {
+  const query = params.toString();
+  const rawBase =
+    API_BASE_URL && API_BASE_URL !== 'null' ? API_BASE_URL : '';
+  if (!rawBase) {
+    return `/api/restaurants?${query}`;
+  }
+  const trimmedBase = rawBase.replace(/\/$/, '');
+  if (trimmedBase.endsWith('/api/restaurants') || trimmedBase.endsWith('/restaurantsProxy')) {
+    return `${trimmedBase}?${query}`;
+  }
+  if (trimmedBase.endsWith('/api')) {
+    return `${trimmedBase}/restaurants?${query}`;
+  }
+  if (/cloudfunctions\.net/i.test(trimmedBase)) {
+    return `${trimmedBase}/restaurantsProxy?${query}`;
+  }
+  return `${trimmedBase}/api/restaurants?${query}`;
+}
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';
@@ -777,8 +798,7 @@ async function fetchRestaurants({ latitude, longitude, city }) {
     params.set('city', String(city));
   }
 
-  const base = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : '';
-  const url = `${base}/api/restaurants?${params.toString()}`;
+  const url = buildRestaurantsUrl(params);
   const res = await fetch(url);
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
@@ -840,7 +860,8 @@ async function loadNearbyRestaurants(container) {
     isFetchingNearby = false;
     nearbyRestaurants = [];
     visibleNearbyRestaurants = [];
-    renderMessage(targetContainer, err?.message || 'Failed to load restaurants.');
+    const message = err?.message || 'Failed to load restaurants.';
+    renderMessage(targetContainer, message);
     renderSavedSection();
     renderHiddenSection();
     updateMapForCurrentView();
