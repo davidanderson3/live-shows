@@ -39,6 +39,159 @@ let currentShows = [];
 let currentSuggestions = [];
 let showsEmptyReason = null;
 
+const SHOWS_CONFIG_STORAGE_KEY = 'showsConfigV1';
+const DEFAULT_SHOWS_CONFIG = {
+  radiusMiles: 300,
+  artistLimit: 10,
+  includeSuggestions: true
+};
+
+function normalizeShowsConfig(config = {}) {
+  const radiusValue = Number.parseFloat(config.radiusMiles);
+  const radiusMiles = Number.isFinite(radiusValue) && radiusValue > 0
+    ? Math.min(Math.max(radiusValue, 25), 1000)
+    : DEFAULT_SHOWS_CONFIG.radiusMiles;
+
+  const artistValue = Number.parseInt(config.artistLimit, 10);
+  const artistLimit = Number.isFinite(artistValue) && artistValue > 0
+    ? Math.min(Math.max(artistValue, 1), 50)
+    : DEFAULT_SHOWS_CONFIG.artistLimit;
+
+  const includeSuggestions =
+    typeof config.includeSuggestions === 'boolean'
+      ? config.includeSuggestions
+      : DEFAULT_SHOWS_CONFIG.includeSuggestions;
+
+  return {
+    radiusMiles,
+    artistLimit,
+    includeSuggestions
+  };
+}
+
+function loadShowsConfig() {
+  if (typeof localStorage === 'undefined') {
+    return { ...DEFAULT_SHOWS_CONFIG };
+  }
+  try {
+    const raw = localStorage.getItem(SHOWS_CONFIG_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SHOWS_CONFIG };
+    const parsed = JSON.parse(raw);
+    return normalizeShowsConfig(parsed);
+  } catch (err) {
+    console.warn('Unable to parse shows config from storage', err);
+    return { ...DEFAULT_SHOWS_CONFIG };
+  }
+}
+
+function saveShowsConfig(config) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(SHOWS_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  } catch (err) {
+    console.warn('Unable to save shows config to storage', err);
+  }
+}
+
+let showsConfig = loadShowsConfig();
+let lastRequestedRadiusMiles = showsConfig.radiusMiles;
+
+function updateShowsConfig(partial = {}) {
+  showsConfig = normalizeShowsConfig({ ...showsConfig, ...partial });
+  saveShowsConfig(showsConfig);
+  return showsConfig;
+}
+
+function buildSampleShow({
+  id,
+  name,
+  venueName,
+  city,
+  stateCode,
+  distanceMiles,
+  daysFromToday,
+  imageUrl,
+  note
+}) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  const iso = date.toISOString();
+  const venue = {
+    name: venueName,
+    city: { name: city },
+    state: { stateCode },
+    location: {
+      latitude: '0',
+      longitude: '0'
+    }
+  };
+  return {
+    id,
+    isSample: true,
+    sampleNote: note,
+    event: {
+      id,
+      name,
+      dates: {
+        start: {
+          localDate: iso.slice(0, 10),
+          localTime: iso.slice(11, 16)
+        }
+      },
+      images: [
+        {
+          ratio: '16_9',
+          url: imageUrl
+        }
+      ],
+      _embedded: { venues: [venue] },
+      url: '#'
+    },
+    venue,
+    distance: distanceMiles,
+    order: 0
+  };
+}
+
+const SAMPLE_PREVIEW_SHOWS = [
+  buildSampleShow({
+    id: 'sample-paramount',
+    name: 'The Midnight Echo',
+    venueName: 'Paramount Theatre',
+    city: 'Austin',
+    stateCode: 'TX',
+    distanceMiles: 4,
+    daysFromToday: 14,
+    imageUrl:
+      'https://images.unsplash.com/photo-1507874457470-272b3c8d8ee2?auto=format&fit=crop&w=960&q=80',
+    note: 'A synthwave night packed with neon visuals and soaring hooks.'
+  }),
+  buildSampleShow({
+    id: 'sample-stubb',
+    name: 'Stubb’s Backyard Sessions',
+    venueName: "Stubb's Waller Creek Amphitheater",
+    city: 'Austin',
+    stateCode: 'TX',
+    distanceMiles: 8,
+    daysFromToday: 24,
+    imageUrl:
+      'https://images.unsplash.com/photo-1489515217757-5fd1be406fef?auto=format&fit=crop&w=960&q=80',
+    note: 'Indie favorites with local openers and late-night food trucks.'
+  }),
+  buildSampleShow({
+    id: 'sample-moody-center',
+    name: 'Moody Center Block Party',
+    venueName: 'Moody Center',
+    city: 'Austin',
+    stateCode: 'TX',
+    distanceMiles: 42,
+    daysFromToday: 37,
+    imageUrl:
+      'https://images.unsplash.com/photo-1519074002996-a69e7ac46a42?auto=format&fit=crop&w=960&q=80',
+    note: 'A stadium-sized pop spectacle with immersive light design.'
+  })
+];
+
 async function fetchSpotifySuggestions(token, artists) {
   if (!token || !Array.isArray(artists) || artists.length === 0) {
     return [];
@@ -325,9 +478,12 @@ function renderShowsList() {
 
   if (!currentShows.length) {
     if (listEl) {
+      const radiusLabel = Math.round(
+        lastRequestedRadiusMiles || DEFAULT_SHOWS_CONFIG.radiusMiles
+      );
       const emptyMessage =
         showsEmptyReason === 'noNearby'
-          ? 'No nearby shows within 300 miles.'
+          ? `No nearby shows within ${radiusLabel} miles.`
           : 'No shows available right now.';
       const emptyEl = document.createElement('p');
       emptyEl.className = 'shows-empty';
@@ -424,9 +580,12 @@ function renderShowsList() {
     } else {
       const noActive = document.createElement('p');
       noActive.className = 'shows-empty';
+      const radiusLabel = Math.round(
+        lastRequestedRadiusMiles || DEFAULT_SHOWS_CONFIG.radiusMiles
+      );
       noActive.textContent = dismissed.length
         ? 'No other shows right now. Review ones you previously skipped below.'
-        : 'No nearby shows within 300 miles.';
+        : `No nearby shows within ${radiusLabel} miles.`;
       listEl.appendChild(noActive);
     }
 
@@ -467,13 +626,46 @@ function renderShowsList() {
   }
 }
 
+function renderShowsPreview(listEl, radiusMiles, message) {
+  if (!listEl) return;
+
+  const radiusLabel = Math.round(radiusMiles || DEFAULT_SHOWS_CONFIG.radiusMiles);
+  listEl.innerHTML = '';
+
+  const prompt = document.createElement('p');
+  prompt.className = 'shows-empty';
+  prompt.innerHTML =
+    message ||
+    `Connect your Spotify account to discover live music within <strong>${radiusLabel} miles</strong> of you.`;
+  listEl.appendChild(prompt);
+
+  const previewIntro = document.createElement('p');
+  previewIntro.className = 'shows-preview-note';
+  previewIntro.textContent = 'Here is a preview of the event cards you will unlock:';
+  listEl.appendChild(previewIntro);
+
+  const previewList = document.createElement('ul');
+  previewList.className = 'shows-grid shows-grid--preview';
+
+  SAMPLE_PREVIEW_SHOWS.forEach((item, index) => {
+    const previewItem = { ...item, status: null, order: index };
+    previewList.appendChild(createShowCard(previewItem));
+  });
+
+  listEl.appendChild(previewList);
+}
+
 function createShowCard(item) {
   const { event, venue, distance, status } = item;
 
   const li = document.createElement('li');
   li.className = 'show-card';
+  const isSample = Boolean(item.isSample);
   if (status === 'interested') {
     li.classList.add('show-card--interested');
+  }
+  if (isSample) {
+    li.classList.add('show-card--sample');
   }
 
   const imageUrl =
@@ -545,18 +737,23 @@ function createShowCard(item) {
   const interestedBtn = document.createElement('button');
   interestedBtn.type = 'button';
   interestedBtn.className = 'show-card__button';
+  interestedBtn.textContent = 'Interested';
   if (status === 'interested') {
     interestedBtn.classList.add('is-active');
     interestedBtn.setAttribute('aria-pressed', 'true');
   } else {
     interestedBtn.setAttribute('aria-pressed', 'false');
   }
-  interestedBtn.textContent = 'Interested';
-  interestedBtn.addEventListener('click', () => {
-    const currentStatus = getShowStatus(item.id);
-    const nextStatus = currentStatus === 'interested' ? null : 'interested';
-    updateShowStatus(item.id, nextStatus);
-  });
+  if (isSample) {
+    interestedBtn.disabled = true;
+    interestedBtn.title = 'Connect Spotify to save events';
+  } else {
+    interestedBtn.addEventListener('click', () => {
+      const currentStatus = getShowStatus(item.id);
+      const nextStatus = currentStatus === 'interested' ? null : 'interested';
+      updateShowStatus(item.id, nextStatus);
+    });
+  }
   actions.appendChild(interestedBtn);
 
   const notInterestedBtn = document.createElement('button');
@@ -567,22 +764,41 @@ function createShowCard(item) {
   if (isDismissed) {
     notInterestedBtn.classList.add('is-active');
   }
-  notInterestedBtn.addEventListener('click', () => {
-    const currentStatus = getShowStatus(item.id);
-    const nextStatus = currentStatus === 'notInterested' ? null : 'notInterested';
-    updateShowStatus(item.id, nextStatus);
-  });
+  if (isSample) {
+    notInterestedBtn.disabled = true;
+    notInterestedBtn.title = 'Connect Spotify to refine results';
+  } else {
+    notInterestedBtn.addEventListener('click', () => {
+      const currentStatus = getShowStatus(item.id);
+      const nextStatus = currentStatus === 'notInterested' ? null : 'notInterested';
+      updateShowStatus(item.id, nextStatus);
+    });
+  }
   actions.appendChild(notInterestedBtn);
 
   content.appendChild(actions);
 
-  if (event.url) {
+  if (isSample && item.sampleNote) {
+    const note = document.createElement('p');
+    note.className = 'show-card__sample-note';
+    note.textContent = item.sampleNote;
+    content.appendChild(note);
+  }
+
+  if (event.url || isSample) {
     const link = document.createElement('a');
-    link.href = event.url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+    link.href = event.url || '#';
     link.className = 'show-card__cta';
-    link.textContent = 'Get Tickets';
+    if (isSample) {
+      link.textContent = 'Preview only';
+      link.removeAttribute('target');
+      link.removeAttribute('rel');
+      link.setAttribute('aria-disabled', 'true');
+    } else {
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Get Tickets';
+    }
     content.appendChild(link);
   }
 
@@ -599,11 +815,13 @@ export async function initShowsPanel() {
   if (!listEl) return;
   const interestedListEl = document.getElementById('ticketmasterInterestedList');
   const tokenBtn = document.getElementById('spotifyTokenBtn');
-  const tokenInput = document.getElementById('spotifyToken');
   const statusEl = document.getElementById('spotifyStatus');
   const apiKeyInput = document.getElementById('ticketmasterApiKey');
   const tabsContainer = document.getElementById('showsTabs');
   const discoverBtn = document.getElementById('ticketmasterDiscoverBtn');
+  const radiusInput = document.getElementById('showsRadius');
+  const artistLimitInput = document.getElementById('showsArtistLimit');
+  const includeSuggestionsInput = document.getElementById('showsIncludeSuggestions');
 
   const setDiscoverButtonState = isLoading => {
     if (!discoverBtn) return;
@@ -616,6 +834,46 @@ export async function initShowsPanel() {
       ? 'Loading…'
       : discoverBtn.dataset.defaultText;
   };
+
+  const applyConfigToInputs = config => {
+    if (radiusInput) {
+      radiusInput.value = String(config.radiusMiles);
+    }
+    if (artistLimitInput) {
+      artistLimitInput.value = String(config.artistLimit);
+    }
+    if (includeSuggestionsInput) {
+      includeSuggestionsInput.checked = Boolean(config.includeSuggestions);
+    }
+  };
+
+  applyConfigToInputs(showsConfig);
+
+  const readConfigFromInputs = () => {
+    const partial = {};
+    if (radiusInput) {
+      partial.radiusMiles = Number.parseFloat(radiusInput.value);
+    }
+    if (artistLimitInput) {
+      partial.artistLimit = Number.parseInt(artistLimitInput.value, 10);
+    }
+    if (includeSuggestionsInput) {
+      partial.includeSuggestions = includeSuggestionsInput.checked;
+    }
+    const next = updateShowsConfig(partial);
+    applyConfigToInputs(next);
+    return next;
+  };
+
+  const handleConfigChange = () => {
+    readConfigFromInputs();
+  };
+
+  radiusInput?.addEventListener('change', handleConfigChange);
+  radiusInput?.addEventListener('blur', handleConfigChange);
+  artistLimitInput?.addEventListener('change', handleConfigChange);
+  artistLimitInput?.addEventListener('blur', handleConfigChange);
+  includeSuggestionsInput?.addEventListener('change', handleConfigChange);
 
   if (tabsContainer) {
     const tabButtons = Array.from(tabsContainer.querySelectorAll('.shows-tab'));
@@ -678,34 +936,18 @@ export async function initShowsPanel() {
   const updateSpotifyStatus = () => {
     const storedToken =
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
-    if (storedToken) {
-      if (tokenBtn) {
-        tokenBtn.textContent = 'Login to Spotify';
-        tokenBtn.style.display = 'none';
-      }
-      if (statusEl) {
-        statusEl.textContent = 'Signed in to Spotify';
-        statusEl.classList.add('shows-spotify-status');
-      }
-      if (tokenInput) {
-        tokenInput.disabled = true;
-        tokenInput.style.display = 'none';
-      }
-    } else {
-      if (tokenBtn) {
-        tokenBtn.textContent = 'Login to Spotify';
-        tokenBtn.style.display = '';
-      }
-      if (statusEl) {
-        statusEl.textContent = '';
-        statusEl.classList.remove('shows-spotify-status');
-      }
-      if (tokenInput) {
-        tokenInput.disabled = false;
-        tokenInput.style.display = '';
-      }
+    if (tokenBtn) {
+      tokenBtn.textContent = storedToken ? 'Reconnect Spotify' : 'Login to Spotify';
+    }
+    if (statusEl) {
+      statusEl.textContent = storedToken ? 'Spotify connected' : 'Not connected';
+      statusEl.classList.toggle('shows-spotify-status', Boolean(storedToken));
     }
   };
+
+  if (statusEl) {
+    statusEl.setAttribute('aria-live', 'polite');
+  }
 
   updateSpotifyStatus();
 
@@ -744,7 +986,7 @@ export async function initShowsPanel() {
 
   const params = new URLSearchParams(window.location.search);
   const authCode = params.get('code');
-  if (authCode && tokenInput) {
+  if (authCode) {
     try {
       const verifier =
         (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyCodeVerifier')) || '';
@@ -763,7 +1005,6 @@ export async function initShowsPanel() {
       if (res.ok) {
         const data = await res.json();
         const accessToken = data.access_token || '';
-        if (tokenInput) tokenInput.value = '';
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('spotifyToken', accessToken);
         }
@@ -782,8 +1023,10 @@ export async function initShowsPanel() {
       if (triggeredByUser) setDiscoverButtonState(false);
     };
 
+    const { radiusMiles, artistLimit, includeSuggestions } = readConfigFromInputs();
+    lastRequestedRadiusMiles = radiusMiles;
+
     const token =
-      tokenInput?.value.trim() ||
       (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
     const manualApiKey =
       apiKeyInput?.value.trim() ||
@@ -793,14 +1036,17 @@ export async function initShowsPanel() {
     if (!token) {
       currentShows = [];
       currentSuggestions = [];
-      listEl.textContent = 'Please login to Spotify.';
+      showsEmptyReason = 'preview';
+      renderShowsPreview(listEl, radiusMiles);
+      if (interestedListEl) {
+        interestedListEl.innerHTML = '';
+        const prompt = document.createElement('p');
+        prompt.className = 'shows-empty';
+        prompt.textContent = 'Connect Spotify to start saving live music events.';
+        interestedListEl.appendChild(prompt);
+      }
       stopLoading();
       return;
-    }
-
-    if (tokenInput?.value && typeof localStorage !== 'undefined') {
-      localStorage.setItem('spotifyToken', token);
-      updateSpotifyStatus();
     }
 
     if (requiresManualApiKey && !manualApiKey) {
@@ -816,17 +1062,32 @@ export async function initShowsPanel() {
     } else if (!requiresManualApiKey && typeof localStorage !== 'undefined') {
       localStorage.removeItem('ticketmasterApiKey');
     }
+
     listEl.innerHTML = '<em>Loading...</em>';
     try {
-      const artistRes = await fetch('https://api.spotify.com/v1/me/top/artists?limit=10', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const artistRes = await fetch(
+        `https://api.spotify.com/v1/me/top/artists?limit=${artistLimit}`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
       if (artistRes.status === 401) {
         if (typeof localStorage !== 'undefined') {
           localStorage.removeItem('spotifyToken');
         }
         updateSpotifyStatus();
-        listEl.textContent = 'Please login to Spotify again.';
+        renderShowsPreview(
+          listEl,
+          radiusMiles,
+          'Spotify session expired. <strong>Login again</strong> to refresh your personalized shows.'
+        );
+        if (interestedListEl) {
+          interestedListEl.innerHTML = '';
+          const prompt = document.createElement('p');
+          prompt.className = 'shows-empty';
+          prompt.textContent = 'Connect Spotify to start saving live music events.';
+          interestedListEl.appendChild(prompt);
+        }
         return;
       }
       if (!artistRes.ok) throw new Error(`Spotify HTTP ${artistRes.status}`);
@@ -835,7 +1096,8 @@ export async function initShowsPanel() {
       if (artists.length === 0) {
         currentShows = [];
         currentSuggestions = [];
-        listEl.textContent = 'No artists found.';
+        listEl.innerHTML =
+          '<p class="shows-empty">Spotify did not return any top artists yet. Listen to a few artists and try again.</p>';
         return;
       }
 
@@ -844,9 +1106,12 @@ export async function initShowsPanel() {
         currentShows = [];
         currentSuggestions = [];
         listEl.innerHTML =
-          '<p class="shows-empty">Allow location access to see shows within 300 miles.</p>';
+          `<p class="shows-empty">Allow location access to see shows within ${Math.round(
+            radiusMiles
+          )} miles.</p>`;
         return;
       }
+
       const eventsMap = new Map();
       let eventCounter = 0;
       const apiBase =
@@ -898,7 +1163,7 @@ export async function initShowsPanel() {
               lon
             );
           }
-          if (Number.isFinite(distance) && distance > 300) {
+          if (Number.isFinite(distance) && distance > radiusMiles) {
             continue;
           }
           if (distance == null) {
@@ -918,6 +1183,7 @@ export async function initShowsPanel() {
           }
         }
       }
+
       if (eventsMap.size > 0) {
         const events = Array.from(eventsMap.values());
         if (cachedUserLocation) {
@@ -937,10 +1203,11 @@ export async function initShowsPanel() {
         renderShowsList();
       } else {
         currentShows = [];
-        currentSuggestions = [];
         showsEmptyReason = 'noNearby';
         try {
-          currentSuggestions = await fetchSpotifySuggestions(token, artists);
+          currentSuggestions = includeSuggestions
+            ? await fetchSpotifySuggestions(token, artists)
+            : [];
         } catch (err) {
           console.warn('Failed to load Spotify suggestions', err);
           currentSuggestions = [];
