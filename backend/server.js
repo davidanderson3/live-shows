@@ -31,7 +31,10 @@ movieCatalog
 const PORT = Number(process.env.PORT) || 3003;
 const HOST = process.env.HOST || (process.env.VITEST ? '127.0.0.1' : '0.0.0.0');
 const EVENTBRITE_API_TOKEN =
-  process.env.EVENTBRITE_API_TOKEN || process.env.EVENTBRITE_OAUTH_TOKEN || '';
+  process.env.EVENTBRITE_API_TOKEN ||
+  process.env.EVENTBRITE_OAUTH_TOKEN ||
+  process.env.EVENTBRITE_TOKEN ||
+  '';
 const HAS_EVENTBRITE_TOKEN = Boolean(EVENTBRITE_API_TOKEN);
 const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
 const YELP_CACHE_COLLECTION = 'yelpCache';

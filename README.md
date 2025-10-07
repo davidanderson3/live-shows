@@ -78,7 +78,7 @@ The Eventbrite proxy performs a location-first search and the client highlights 
 2. Filters the returned events to your configured radius and promotes matches whose performers overlap with your top Spotify artists.
 3. Sorts events by proximity and renders ticket links, badges, and Interested/Not Interested actions in the dashboard.
 
-When Eventbrite asks for credentials, supply the **personal OAuth token** (labelled "private token" in their UI) that appears under **Account Settings → Developer → Your personal token**. The classic API key/secret pair does not authorize the Events Search endpoint, so the proxy will return HTTP 401 if you paste those values. You can also set the same personal token in `EVENTBRITE_API_TOKEN` (or `EVENTBRITE_OAUTH_TOKEN`) on the backend to avoid entering it in the browser.
+When Eventbrite asks for credentials, supply the **personal OAuth token** (labelled "private token" in their UI) that appears under **Account Settings → Developer → Your personal token**. The classic API key/secret pair does not authorize the Events Search endpoint, so the proxy will return HTTP 401 if you paste those values. You can also set the same personal token in `EVENTBRITE_API_TOKEN`, `EVENTBRITE_OAUTH_TOKEN`, or `EVENTBRITE_TOKEN` on the backend to avoid entering it in the browser.
 
 If no Eventbrite API token is available, Discover prompts for one and never transmits the request without explicit credentials.
 
@@ -107,7 +107,7 @@ Create a `.env` in the project root (and optionally `backend/.env`) with the cre
 | `PORT` | Express server | Override the default `3003` port. |
 | `HOST` | Express server | Bind address; defaults to `0.0.0.0`. |
 | `SPOTIFY_CLIENT_ID` | `/api/spotify-client-id` | PKCE client ID for Spotify login. |
-| `EVENTBRITE_API_TOKEN` or `EVENTBRITE_OAUTH_TOKEN` | Eventbrite proxy | Eventbrite personal token used for the Events Search API. |
+| `EVENTBRITE_API_TOKEN`, `EVENTBRITE_OAUTH_TOKEN`, or `EVENTBRITE_TOKEN` | Eventbrite proxy | Eventbrite personal token used for the Events Search API. |
 | `SPOONACULAR_KEY` | Spoonacular proxy | API key for recipe search. |
 | `YELP_API_KEY` | Restaurants proxy | Yelp Fusion API key if you do not pass one per request. |
 | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` | Plaid endpoints | Enable financial account linking workflows. |
