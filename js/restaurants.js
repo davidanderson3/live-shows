@@ -719,7 +719,9 @@ function renderNearbySection() {
   const container = domRefs.nearbyContainer;
   if (!container) return;
   if (isFetchingNearby && !nearbyRestaurants.length) return;
-  visibleNearbyRestaurants = nearbyRestaurants.filter(rest => !isHidden(rest.id));
+  visibleNearbyRestaurants = nearbyRestaurants.filter(
+    rest => !isHidden(rest.id) && !isSaved(rest.id)
+  );
   const emptyMessage = 'No restaurants found.';
   renderRestaurantsList(container, visibleNearbyRestaurants, emptyMessage);
 }
