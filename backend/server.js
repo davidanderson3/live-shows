@@ -13,7 +13,6 @@ const express = require('express');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const cors = require('cors');
 const { readCachedResponse, writeCachedResponse } = require('../shared/cache');
-const { normalizeRecipeQuery, recipeCacheKeyParts } = require('../shared/recipes');
 const movieCatalog = require('./movie-catalog');
 let nodemailer;
 try {
@@ -36,8 +35,6 @@ const HAS_SONGKICK_KEY = Boolean(SONGKICK_API_KEY);
 const YELP_CACHE_COLLECTION = 'yelpCache';
 const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 const SONGKICK_CACHE_COLLECTION = 'songkickCache';
-const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
-const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const DEFAULT_MOVIE_LIMIT = 20;
 
 // Enable CORS for all routes so the frontend can reach the API
@@ -506,51 +503,6 @@ app.get('/api/songkick', async (req, res) => {
     res.status(response.status).type('application/json').send(text);
   } catch (err) {
     console.error('Songkick fetch failed', err);
-    res.status(500).json({ error: 'failed' });
-  }
-});
-
-// --- Spoonacular proxy ---
-app.get('/api/spoonacular', async (req, res) => {
-  const { query } = req.query || {};
-  const apiKey = process.env.SPOONACULAR_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'missing api key' });
-  }
-  if (!query) {
-    return res.status(400).json({ error: 'missing query' });
-  }
-  const cacheKeyParts = recipeCacheKeyParts(query);
-  const cached = await readCachedResponse(
-    SPOONACULAR_CACHE_COLLECTION,
-    cacheKeyParts,
-    SPOONACULAR_CACHE_TTL_MS
-  );
-  if (sendCachedResponse(res, cached)) {
-    return;
-  }
-  const apiUrl =
-    `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(
-      query
-    )}&number=50&offset=0&addRecipeInformation=true&addRecipeNutrition=true&fillIngredients=true&apiKey=${apiKey}`;
-  try {
-    const apiRes = await fetch(apiUrl);
-    const text = await apiRes.text();
-    const contentType = apiRes.headers.get('content-type') || 'application/json';
-    if (apiRes.ok) {
-      await writeCachedResponse(SPOONACULAR_CACHE_COLLECTION, cacheKeyParts, {
-        status: apiRes.status,
-        contentType,
-        body: text,
-        metadata: {
-          query,
-          normalizedQuery: normalizeRecipeQuery(query)
-        }
-      });
-    }
-    res.status(apiRes.status).type(contentType).send(text);
-  } catch (err) {
-    console.error('Spoonacular fetch failed', err);
     res.status(500).json({ error: 'failed' });
   }
 });

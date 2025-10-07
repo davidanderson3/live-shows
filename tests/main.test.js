@@ -256,12 +256,10 @@ describe('shift+A hotkey', () => {
       <div id="tabsContainer">
         <button class="tab-button" data-target="moviesPanel"></button>
         <button class="tab-button" data-target="showsPanel"></button>
-        <button class="tab-button" data-target="recipesPanel"></button>
         <button class="tab-button" data-target="restaurantsPanel"></button>
       </div>
       <div id="moviesPanel"></div>
       <div id="showsPanel"></div>
-      <div id="recipesPanel"></div>
       <div id="restaurantsPanel"></div>
     `);
     global.window = dom.window;
@@ -281,12 +279,10 @@ describe('shift+A hotkey', () => {
 
     const moviesBtn = dom.window.document.querySelector('.tab-button[data-target="moviesPanel"]');
     const showsBtn = dom.window.document.querySelector('.tab-button[data-target="showsPanel"]');
-    const recipesBtn = dom.window.document.querySelector('.tab-button[data-target="recipesPanel"]');
     const restaurantsBtn = dom.window.document.querySelector('.tab-button[data-target="restaurantsPanel"]');
 
     expect(moviesBtn.style.display).not.toBe('none');
     expect(showsBtn.style.display).not.toBe('none');
-    expect(recipesBtn.style.display).not.toBe('none');
     expect(restaurantsBtn.style.display).not.toBe('none');
     });
   });

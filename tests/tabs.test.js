@@ -27,11 +27,9 @@ describe('initTabs (streamlined)', () => {
     const dom = new JSDOM(`
       <button class="tab-button" data-target="moviesPanel"></button>
       <button class="tab-button" data-target="showsPanel"></button>
-      <button class="tab-button" data-target="recipesPanel"></button>
       <button class="tab-button" data-target="restaurantsPanel"></button>
       <div id="moviesPanel"></div>
       <div id="showsPanel"></div>
-      <div id="recipesPanel"></div>
       <div id="restaurantsPanel"></div>
     `, { url: 'http://localhost/' });
 
@@ -42,7 +40,6 @@ describe('initTabs (streamlined)', () => {
 
     global.window.initMoviesPanel = vi.fn();
     global.window.initShowsPanel = vi.fn();
-    global.window.initRecipesPanel = vi.fn();
     global.window.initRestaurantsPanel = vi.fn();
 
     const mod = await import('../js/tabs.js');

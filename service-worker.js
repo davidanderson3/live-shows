@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'dashboard-static-v3';
+const STATIC_CACHE = 'dashboard-static-v4';
 const DYNAMIC_CACHE = 'dashboard-dynamic-v1';
 const MAX_DYNAMIC_ENTRIES = 60;
 
@@ -10,7 +10,6 @@ const PRECACHE_URLS = [
   './js/tabs.js',
   './js/movies.js',
   './js/shows.js',
-  './js/recipes.js',
   './js/restaurants.js',
   './js/tabReports.js',
   './js/helpers.js',

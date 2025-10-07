@@ -27,14 +27,12 @@ function ensureRestaurantsPanelInitialized() {
 export const PANELS = [
   'moviesPanel',
   'showsPanel',
-  'recipesPanel',
   'restaurantsPanel'
 ];
 
 export const PANEL_NAMES = {
   moviesPanel: 'Movies',
   showsPanel: 'Live Music',
-  recipesPanel: 'Recipes',
   restaurantsPanel: 'Restaurants'
 };
 
@@ -94,9 +92,6 @@ export async function initTabs(user, db) {
       else if (target === 'showsPanel') {
         await window.initShowsPanel();
       }
-      else if (target === 'recipesPanel') {
-        await window.initRecipesPanel();
-      }
       else if (target === 'restaurantsPanel') {
         await ensureRestaurantsPanelInitialized();
       }
@@ -130,9 +125,6 @@ export async function initTabs(user, db) {
     }
     else if (initial === 'showsPanel') {
       window.initShowsPanel();
-    }
-    else if (initial === 'recipesPanel') {
-      window.initRecipesPanel();
     }
     else if (initial === 'restaurantsPanel') {
       ensureRestaurantsPanelInitialized();
