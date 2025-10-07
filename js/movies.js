@@ -981,13 +981,37 @@ async function fetchCreditsFromProxy(movieId) {
 }
 
 async function fetchCreditsViaDetailsFromProxy(movieId) {
-  const details = await callTmdbProxy('movie_details', {
-    movie_id: movieId,
-    append_to_response: 'credits'
-  });
-  if (details && typeof details === 'object' && details.credits) {
-    return details.credits;
+  if (!movieId && movieId !== 0) return null;
+
+  const baseParams = { append_to_response: 'credits' };
+  const paramVariants = [
+    { ...baseParams, movie_id: movieId },
+    { ...baseParams, id: movieId },
+    { ...baseParams, movieId }
+  ];
+
+  let lastParamError = null;
+
+  for (const params of paramVariants) {
+    try {
+      const details = await callTmdbProxy('movie_details', params);
+      if (details && typeof details === 'object' && details.credits) {
+        return details.credits;
+      }
+      return null;
+    } catch (err) {
+      if (!isProxyParameterError(err)) {
+        throw err;
+      }
+      lastParamError = err;
+    }
   }
+
+  if (lastParamError) {
+    unsupportedProxyEndpoints.add('movie_details');
+    throw lastParamError;
+  }
+
   return null;
 }
 
