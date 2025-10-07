@@ -396,9 +396,9 @@ describe('initRestaurantsPanel', () => {
     expect(favoritesContainer?.textContent).toContain('Top Rated');
 
     const savedContainer = document.getElementById('restaurantsSaved');
-    expect(savedContainer?.textContent).toContain('Top Rated');
+    expect(savedContainer?.textContent).toContain('No saved restaurants yet.');
 
-    const savedToggle = savedContainer?.querySelector('.restaurant-action--secondary');
+    const savedToggle = favoritesContainer?.querySelector('.restaurant-action--secondary');
     expect(savedToggle?.textContent).toBe('Saved');
     savedToggle?.click();
 

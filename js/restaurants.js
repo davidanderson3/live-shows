@@ -903,7 +903,13 @@ function renderSavedSection() {
     setSavedRestaurants(filtered);
     list = savedRestaurants;
   }
-  renderRestaurantsList(container, list, 'No saved restaurants yet.');
+  const favoriteIds = new Set(
+    favoriteRestaurants
+      .map(item => normalizeId(item.id))
+      .filter(id => typeof id === 'string' && id)
+  );
+  const visibleSaved = list.filter(rest => !favoriteIds.has(normalizeId(rest.id)));
+  renderRestaurantsList(container, visibleSaved, 'No saved restaurants yet.');
 }
 
 function renderFavoritesSection() {
