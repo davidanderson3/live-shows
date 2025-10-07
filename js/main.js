@@ -17,10 +17,41 @@ let renderQueue = Promise.resolve();
 
 window.addEventListener('DOMContentLoaded', () => {
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations?.()
-      .then(regs => Promise.all(regs.map(reg => reg.unregister().catch(() => {}))))
+    let refreshing = false;
+    let shouldReloadOnChange = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      if (!shouldReloadOnChange) {
+        shouldReloadOnChange = true;
+        return;
+      }
+      refreshing = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker
+      .register('./service-worker.js')
+      .then(registration => {
+        if (!registration) return;
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (
+              newWorker.state === 'installed' &&
+              navigator.serviceWorker.controller &&
+              registration.waiting
+            ) {
+              registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+      })
       .catch(err => {
-        console.warn('Service worker cleanup failed:', err);
+        console.warn('Service worker registration failed:', err);
       });
   }
     applySiteName();
