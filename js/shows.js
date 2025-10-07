@@ -1069,16 +1069,38 @@ export async function initShowsPanel() {
   const artistLimitInput = document.getElementById('showsArtistLimit');
   const includeSuggestionsInput = document.getElementById('showsIncludeSuggestions');
 
-  const setDiscoverButtonState = isLoading => {
+  const getStoredSpotifyToken = () =>
+    (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
+
+  let discoverBtnIsLoading = false;
+
+  const refreshDiscoverButtonState = () => {
     if (!discoverBtn) return;
     if (!discoverBtn.dataset.defaultText) {
       discoverBtn.dataset.defaultText = discoverBtn.textContent.trim() || 'Discover';
     }
-    discoverBtn.disabled = isLoading;
-    discoverBtn.classList.toggle('is-loading', isLoading);
-    discoverBtn.textContent = isLoading
+
+    const hasSpotifyToken = Boolean(getStoredSpotifyToken());
+    const shouldDisable = discoverBtnIsLoading || !hasSpotifyToken;
+
+    discoverBtn.disabled = shouldDisable;
+    discoverBtn.classList.toggle('is-loading', discoverBtnIsLoading);
+    discoverBtn.textContent = discoverBtnIsLoading
       ? 'Loading…'
       : discoverBtn.dataset.defaultText;
+
+    if (!hasSpotifyToken) {
+      discoverBtn.title = 'Connect Spotify to discover live music near you.';
+      discoverBtn.setAttribute('aria-disabled', 'true');
+    } else {
+      discoverBtn.removeAttribute('title');
+      discoverBtn.removeAttribute('aria-disabled');
+    }
+  };
+
+  const setDiscoverButtonState = isLoading => {
+    discoverBtnIsLoading = Boolean(isLoading);
+    refreshDiscoverButtonState();
   };
 
   const applyConfigToInputs = config => {
@@ -1181,8 +1203,7 @@ export async function initShowsPanel() {
   const redirectUri = window.location.origin + (canonicalPath || '/');
 
   const updateSpotifyStatus = () => {
-    const storedToken =
-      (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
+    const storedToken = getStoredSpotifyToken();
     if (tokenBtn) {
       tokenBtn.textContent = storedToken ? 'Reconnect Spotify' : 'Login to Spotify';
     }
@@ -1190,6 +1211,7 @@ export async function initShowsPanel() {
       statusEl.textContent = storedToken ? 'Spotify connected' : 'Not connected';
       statusEl.classList.toggle('shows-spotify-status', Boolean(storedToken));
     }
+    refreshDiscoverButtonState();
   };
 
   if (statusEl) {
@@ -1273,8 +1295,7 @@ export async function initShowsPanel() {
     const { radiusMiles, artistLimit, includeSuggestions } = readConfigFromInputs();
     lastRequestedRadiusMiles = radiusMiles;
 
-    const token =
-      (typeof localStorage !== 'undefined' && localStorage.getItem('spotifyToken')) || '';
+    const token = getStoredSpotifyToken();
     const manualApiToken =
       apiKeyInput?.value.trim() ||
       (typeof localStorage !== 'undefined' && localStorage.getItem('eventbriteApiToken')) || '';
