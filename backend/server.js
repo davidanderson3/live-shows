@@ -33,8 +33,12 @@ const HOST = process.env.HOST || (process.env.VITEST ? '127.0.0.1' : '0.0.0.0');
 const EVENTBRITE_API_TOKEN =
   process.env.EVENTBRITE_API_TOKEN || process.env.EVENTBRITE_OAUTH_TOKEN || '';
 const HAS_EVENTBRITE_TOKEN = Boolean(EVENTBRITE_API_TOKEN);
+const YELP_BASE_URL = 'https://api.yelp.com/v3/businesses/search';
 const YELP_CACHE_COLLECTION = 'yelpCache';
 const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const YELP_MAX_PAGE_LIMIT = 50;
+const YELP_DEFAULT_TOTAL_LIMIT = 120;
+const YELP_ABSOLUTE_MAX_LIMIT = 200;
 const EVENTBRITE_CACHE_COLLECTION = 'eventbriteCache';
 const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
 const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
@@ -83,7 +87,15 @@ function parseNumberQuery(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
+function normalizePositiveInteger(value, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  const clamped = Math.min(Math.max(parsed, min), max);
+  return clamped;
+}
+
+function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit }) {
   const normalizedCity = typeof city === 'string' ? city.trim().toLowerCase() : '';
   const normalizedCuisine = typeof cuisine === 'string' ? cuisine.trim().toLowerCase() : '';
   const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
@@ -102,7 +114,37 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine }) {
   if (normalizedCuisine) {
     parts.push(`cuisine:${normalizedCuisine}`);
   }
+  if (Number.isFinite(limit) && limit > 0) {
+    parts.push(`limit:${limit}`);
+  } else {
+    parts.push('limit:default');
+  }
   return parts;
+}
+
+function simplifyYelpBusiness(biz) {
+  if (!biz || typeof biz !== 'object') return null;
+  return {
+    id: biz.id,
+    name: biz.name,
+    address: Array.isArray(biz.location?.display_address)
+      ? biz.location.display_address.join(', ')
+      : biz.location?.address1 || '',
+    city: biz.location?.city || '',
+    state: biz.location?.state || '',
+    zip: biz.location?.zip_code || '',
+    phone: biz.display_phone || biz.phone || '',
+    rating: biz.rating ?? null,
+    reviewCount: biz.review_count ?? null,
+    price: biz.price || '',
+    categories: Array.isArray(biz.categories)
+      ? biz.categories.map(c => c.title).filter(Boolean)
+      : [],
+    latitude: typeof biz.coordinates?.latitude === 'number' ? biz.coordinates.latitude : null,
+    longitude: typeof biz.coordinates?.longitude === 'number' ? biz.coordinates.longitude : null,
+    url: biz.url || '',
+    distance: typeof biz.distance === 'number' ? biz.distance : null
+  };
 }
 
 const plaidClient = (() => {
@@ -237,68 +279,95 @@ app.get('/api/restaurants', async (req, res) => {
     return res.status(400).json({ error: 'missing location' });
   }
 
-  const cacheKeyParts = yelpCacheKeyParts({ city, latitude, longitude, cuisine });
+  const rawLimitParam = req.query?.limit ?? req.query?.maxResults;
+  const requestedLimit = normalizePositiveInteger(rawLimitParam, {
+    min: 1,
+    max: YELP_ABSOLUTE_MAX_LIMIT
+  });
+  const targetTotal = requestedLimit || YELP_DEFAULT_TOTAL_LIMIT;
+
+  const cacheKeyParts = yelpCacheKeyParts({
+    city,
+    latitude,
+    longitude,
+    cuisine,
+    limit: targetTotal
+  });
   const cached = await readCachedResponse(YELP_CACHE_COLLECTION, cacheKeyParts, YELP_CACHE_TTL_MS);
   if (sendCachedResponse(res, cached)) {
     return;
   }
 
-  const params = new URLSearchParams({
-    categories: 'restaurants',
-    limit: '50'
-  });
-  if (city) {
-    params.set('location', String(city));
-  }
-  if (hasCoords) {
-    params.delete('location');
-    params.set('latitude', String(latitude));
-    params.set('longitude', String(longitude));
-    params.set('sort_by', 'distance');
-  }
-  if (cuisine) {
-    params.set('term', String(cuisine));
-  }
-
-  const url = `https://api.yelp.com/v3/businesses/search?${params.toString()}`;
-
   try {
-    const apiRes = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${yelpKey}`
-      }
+    const baseParams = new URLSearchParams({
+      categories: 'restaurants'
     });
-
-    const data = await apiRes.json();
-
-    if (!apiRes.ok) {
-      const message = data?.error?.description || data?.error?.code || 'failed';
-      return res.status(apiRes.status).json({ error: message });
+    if (hasCoords) {
+      baseParams.set('latitude', String(latitude));
+      baseParams.set('longitude', String(longitude));
+      baseParams.set('sort_by', 'distance');
+    } else if (city) {
+      baseParams.set('location', String(city));
+    }
+    if (cuisine) {
+      baseParams.set('term', String(cuisine));
     }
 
-    const results = Array.isArray(data?.businesses) ? data.businesses : [];
-    const simplified = results.map(biz => ({
-      id: biz.id,
-      name: biz.name,
-      address: Array.isArray(biz.location?.display_address)
-        ? biz.location.display_address.join(', ')
-        : biz.location?.address1 || '',
-      city: biz.location?.city || '',
-      state: biz.location?.state || '',
-      zip: biz.location?.zip_code || '',
-      phone: biz.display_phone || biz.phone || '',
-      rating: biz.rating ?? null,
-      reviewCount: biz.review_count ?? null,
-      price: biz.price || '',
-      categories: Array.isArray(biz.categories) ? biz.categories.map(c => c.title).filter(Boolean) : [],
-      latitude:
-        typeof biz.coordinates?.latitude === 'number' ? biz.coordinates.latitude : null,
-      longitude:
-        typeof biz.coordinates?.longitude === 'number' ? biz.coordinates.longitude : null,
-      url: biz.url || '',
-      distance: typeof biz.distance === 'number' ? biz.distance : null
-    }));
+    const aggregated = [];
+    const seenIds = new Set();
+    let offset = 0;
+    let totalAvailable = null;
+    let shouldContinue = true;
 
+    while (shouldContinue && aggregated.length < targetTotal) {
+      const remainingNeeded = targetTotal - aggregated.length;
+      const batchLimit = Math.min(YELP_MAX_PAGE_LIMIT, remainingNeeded);
+      const params = new URLSearchParams(baseParams);
+      params.set('limit', String(batchLimit));
+      if (offset > 0) {
+        params.set('offset', String(offset));
+      }
+
+      const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${yelpKey}`
+        }
+      });
+
+      const data = await apiRes.json().catch(() => null);
+
+      if (!apiRes.ok || !data) {
+        const message =
+          data?.error?.description || data?.error?.code || data?.error || 'failed';
+        res.status(apiRes.status).json({ error: message });
+        return;
+      }
+
+      const results = Array.isArray(data?.businesses) ? data.businesses : [];
+      totalAvailable =
+        typeof data?.total === 'number' && data.total >= 0 ? data.total : totalAvailable;
+
+      offset += results.length;
+
+      for (const biz of results) {
+        if (!biz || typeof biz !== 'object') continue;
+        const id = biz.id;
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        aggregated.push(biz);
+        if (aggregated.length >= targetTotal) {
+          break;
+        }
+      }
+
+      if (results.length < batchLimit) {
+        shouldContinue = false;
+      } else if (totalAvailable !== null && offset >= totalAvailable) {
+        shouldContinue = false;
+      }
+    }
+
+    const simplified = aggregated.map(simplifyYelpBusiness).filter(Boolean);
     const payload = JSON.stringify(simplified);
     await writeCachedResponse(YELP_CACHE_COLLECTION, cacheKeyParts, {
       status: 200,
@@ -310,7 +379,9 @@ app.get('/api/restaurants', async (req, res) => {
         latitude: hasCoords ? latitude : null,
         longitude: hasCoords ? longitude : null,
         cuisine: typeof cuisine === 'string' ? cuisine : '',
-        total: simplified.length
+        requestedLimit: targetTotal,
+        returned: simplified.length,
+        totalAvailable
       }
     });
 
