@@ -428,6 +428,33 @@ function isProxyEndpointSupported(endpoint) {
   return !unsupportedProxyEndpoints.has(endpoint);
 }
 
+function summarizeProxyError(error) {
+  if (!error || typeof error !== 'object') {
+    return 'unknown error';
+  }
+
+  const parts = [];
+
+  if (typeof error.status === 'number') {
+    parts.push(`status ${error.status}`);
+  }
+
+  if (error.code) {
+    parts.push(`code "${error.code}"`);
+  }
+
+  const body = typeof error.body === 'string' ? error.body.trim() : '';
+  if (body) {
+    parts.push(`body: ${body.slice(0, 120)}${body.length > 120 ? '…' : ''}`);
+  }
+
+  if (!parts.length) {
+    return 'unknown error';
+  }
+
+  return parts.join(', ');
+}
+
 async function callTmdbProxy(endpoint, params = {}) {
   const proxyEndpoint = getTmdbProxyEndpoint();
   if (!proxyEndpoint) {
@@ -453,13 +480,33 @@ async function callTmdbProxy(endpoint, params = {}) {
   }
 
   if (!response.ok) {
-    const error = new Error('TMDB proxy request failed');
+    const error = new Error(`TMDB proxy request failed (status ${response.status})`);
     error.endpoint = endpoint;
     error.status = response.status;
+    if (response.statusText) {
+      error.statusText = response.statusText;
+    }
     try {
       error.body = await response.text();
     } catch (_) {
       error.body = null;
+    }
+
+    let parsedBody = null;
+    if (typeof error.body === 'string' && error.body.trim()) {
+      try {
+        parsedBody = JSON.parse(error.body);
+      } catch (_) {
+        parsedBody = null;
+      }
+    }
+
+    if (parsedBody && parsedBody.error && !error.code) {
+      error.code = parsedBody.error;
+    }
+
+    if (parsedBody && parsedBody.message && !error.messageDetail) {
+      error.messageDetail = parsedBody.message;
     }
 
     const shouldDisableProxy = (() => {
@@ -470,11 +517,8 @@ async function callTmdbProxy(endpoint, params = {}) {
       if (bodyText.includes('tmdb_key_not_configured')) return true;
       if (response.status === 400) {
         try {
-          const parsed = JSON.parse(bodyText);
+          const parsed = parsedBody || JSON.parse(bodyText);
           const code = parsed?.error;
-          if (code) {
-            error.code = code;
-          }
           if (code === 'unsupported_endpoint') {
             if (endpoint) {
               unsupportedProxyEndpoints.add(endpoint);
@@ -890,7 +934,10 @@ async function fetchCreditsForMovie(movieId, { usingProxy, apiKey }) {
         return credits;
       }
     } catch (err) {
-      console.warn('TMDB proxy credits request failed, attempting direct fallback', err);
+      console.warn(
+        `TMDB proxy credits request failed (${summarizeProxyError(err)}), attempting direct fallback`,
+        err
+      );
       if (!err || (err.code !== 'unsupported_endpoint' && err.code !== 'invalid_endpoint_params')) {
         disableTmdbProxy();
       }
