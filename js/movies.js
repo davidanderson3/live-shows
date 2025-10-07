@@ -1015,6 +1015,12 @@ async function fetchCreditsViaDetailsFromProxy(movieId) {
       }
       return null;
     } catch (err) {
+      if (err && err.status === 400 && !isProxyParameterError(err)) {
+        unsupportedProxyEndpoints.add('movie_details');
+        if (!err.code) {
+          err.code = 'unsupported_endpoint';
+        }
+      }
       if (!isProxyParameterError(err)) {
         throw err;
       }
