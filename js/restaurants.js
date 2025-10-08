@@ -22,8 +22,6 @@ const STORAGE_KEYS = {
   favorites: 'restaurants:favorites',
   hidden: 'restaurants:hidden'
 };
-
-const YELP_API_KEY_STORAGE_KEY = 'restaurants:apiKey';
 const FIRESTORE_COLLECTION = 'restaurants';
 const FIRESTORE_SAVE_DEBOUNCE_MS = 800;
 
@@ -40,8 +38,6 @@ let currentView = 'nearby';
 let isFetchingNearby = false;
 let userLocation = null;
 let nearbyRadiusIndex = 0;
-let yelpApiKey = readStoredApiKey();
-let needsApiKeyRetry = false;
 let firestoreInitPromise = null;
 let activeFirestoreUserId = null;
 let firestoreSaveTimer = null;
@@ -54,8 +50,7 @@ const domRefs = {
   savedContainer: null,
   favoritesContainer: null,
   hiddenContainer: null,
-  tabButtons: [],
-  apiKeyInput: null
+  tabButtons: []
 };
 
 function buildRestaurantsUrl(params) {
@@ -178,31 +173,10 @@ function readStoredList(key) {
   }
 }
 
-function readStoredApiKey() {
-  if (typeof window === 'undefined' || !window.localStorage) return '';
-  try {
-    const raw = window.localStorage.getItem(YELP_API_KEY_STORAGE_KEY);
-    return typeof raw === 'string' ? raw : '';
-  } catch {
-    return '';
-  }
-}
-
 function writeStoredList(key, list) {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(key, JSON.stringify(list));
-  } catch {}
-}
-
-function writeStoredApiKey(value) {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    if (value) {
-      window.localStorage.setItem(YELP_API_KEY_STORAGE_KEY, value);
-    } else {
-      window.localStorage.removeItem(YELP_API_KEY_STORAGE_KEY);
-    }
   } catch {}
 }
 
@@ -218,7 +192,6 @@ function loadStoredState() {
     )
   );
   hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
-  yelpApiKey = readStoredApiKey();
   syncFavoritesWithSaved();
 }
 
@@ -232,28 +205,6 @@ function persistFavorites() {
 
 function persistHidden() {
   writeStoredList(STORAGE_KEYS.hidden, hiddenRestaurants);
-}
-
-function setYelpApiKey(value, { persist = true, syncInput = true } = {}) {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  if (normalized === yelpApiKey) {
-    if (syncInput) syncApiKeyInput();
-    return;
-  }
-  yelpApiKey = normalized;
-  if (persist) {
-    writeStoredApiKey(yelpApiKey);
-  }
-  if (syncInput) {
-    syncApiKeyInput();
-  }
-}
-
-function syncApiKeyInput() {
-  if (!domRefs.apiKeyInput) return;
-  if (domRefs.apiKeyInput.value !== yelpApiKey) {
-    domRefs.apiKeyInput.value = yelpApiKey;
-  }
 }
 
 function isSaved(id) {
@@ -1589,10 +1540,6 @@ async function fetchRestaurants({
     params.set('city', String(city));
   }
 
-  if (yelpApiKey) {
-    params.set('apiKey', yelpApiKey);
-  }
-
   const url = buildRestaurantsUrl(params);
   const res = await fetch(url);
   if (!res.ok) {
@@ -1619,7 +1566,7 @@ function isMissingYelpApiKeyError(err) {
 function interpretRestaurantsError(err) {
   if (!err) return 'Failed to load restaurants.';
   if (isMissingYelpApiKeyError(err)) {
-    return 'Add your Yelp Fusion API key above or configure YELP_API_KEY on the server to search for nearby restaurants.';
+    return 'Configure the server with YELP_API_KEY to search for nearby restaurants.';
   }
   if (typeof err.message === 'string' && err.message.trim()) {
     return err.message;
@@ -1640,11 +1587,6 @@ function getCurrentPosition() {
 async function loadNearbyRestaurants(container) {
   const targetContainer = container || domRefs.nearbyContainer;
   if (!targetContainer) return;
-
-  if (!isFetchingNearby) {
-    // Avoid stale retry flags when manually triggering a refresh.
-    needsApiKeyRetry = false;
-  }
 
   isFetchingNearby = true;
   requestedNearbyLimit = TARGET_NEARBY_RESULTS;
@@ -1728,7 +1670,6 @@ async function loadNearbyRestaurants(container) {
         : [];
     requestedNearbyLimit = initialLimit;
     lastNearbyFetchOptions = fetchOptions;
-    needsApiKeyRetry = false;
     updateNearbyRestaurants();
     isFetchingNearby = false;
     renderAll();
@@ -1741,9 +1682,6 @@ async function loadNearbyRestaurants(container) {
     clearUserLocation();
     requestedNearbyLimit = TARGET_NEARBY_RESULTS;
     lastNearbyFetchOptions = null;
-    if (isMissingYelpApiKeyError(err)) {
-      needsApiKeyRetry = true;
-    }
     const message = interpretRestaurantsError(err);
     renderMessage(targetContainer, message);
     renderSavedSection();
@@ -1765,38 +1703,9 @@ export async function initRestaurantsPanel() {
   domRefs.favoritesContainer = document.getElementById('restaurantsFavorites');
   domRefs.hiddenContainer = document.getElementById('restaurantsHiddenSection');
   domRefs.tabButtons = Array.from(resultsContainer.querySelectorAll('.restaurants-tab'));
-  domRefs.apiKeyInput = document.getElementById('yelpApiKeyInput');
 
   loadStoredState();
   await ensureFirestoreInitialized();
-  syncApiKeyInput();
-
-  if (domRefs.apiKeyInput) {
-    const commitApiKey = () => {
-      const value = domRefs.apiKeyInput?.value || '';
-      const previousKey = yelpApiKey;
-      setYelpApiKey(value, { persist: true, syncInput: true });
-      if (
-        yelpApiKey &&
-        !isFetchingNearby &&
-        (needsApiKeyRetry || (!rawNearbyRestaurants.length && previousKey !== yelpApiKey))
-      ) {
-        loadNearbyRestaurants(domRefs.nearbyContainer);
-      }
-    };
-
-    domRefs.apiKeyInput.addEventListener('change', commitApiKey);
-    domRefs.apiKeyInput.addEventListener('blur', commitApiKey);
-    domRefs.apiKeyInput.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        commitApiKey();
-        if (yelpApiKey && !isFetchingNearby) {
-          loadNearbyRestaurants(domRefs.nearbyContainer);
-        }
-      }
-    });
-  }
 
   domRefs.tabButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -1837,18 +1746,6 @@ if (typeof window !== 'undefined') {
       renderSavedSection();
       renderFavoritesSection();
       updateMapForCurrentView();
-    } else if (event.key === YELP_API_KEY_STORAGE_KEY) {
-      const previousKey = yelpApiKey;
-      yelpApiKey = readStoredApiKey();
-      syncApiKeyInput();
-      if (
-        yelpApiKey &&
-        yelpApiKey !== previousKey &&
-        !isFetchingNearby &&
-        (needsApiKeyRetry || !rawNearbyRestaurants.length)
-      ) {
-        loadNearbyRestaurants(domRefs.nearbyContainer);
-      }
     }
   });
   window.initRestaurantsPanel = initRestaurantsPanel;
