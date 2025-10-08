@@ -2463,20 +2463,90 @@ h2 {
 .genre-filter {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
   margin-bottom: 12px;
 }
 
-.genre-filter-exclude-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.genre-filter-layout {
+  display: grid;
+  gap: 12px;
 }
 
-.genre-filter-exclude-heading {
+@media (min-width: 720px) {
+  .genre-filter-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.genre-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e2e2;
+  background: #f9f9f9;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.genre-filter-section--include {
+  background: linear-gradient(180deg, rgba(122, 166, 140, 0.08), rgba(122, 166, 140, 0.02));
+  border-color: rgba(86, 130, 104, 0.35);
+}
+
+.genre-filter-section--exclude {
+  background: linear-gradient(180deg, rgba(201, 111, 111, 0.08), rgba(201, 111, 111, 0.02));
+  border-color: rgba(201, 111, 111, 0.35);
+}
+
+.genre-filter-section-heading {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #222;
+}
+
+.genre-filter-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.genre-filter-summary--include {
+  border-color: rgba(86, 130, 104, 0.35);
+  background: rgba(122, 166, 140, 0.12);
+}
+
+.genre-filter-summary--exclude {
+  border-color: rgba(201, 111, 111, 0.35);
+  background: rgba(201, 111, 111, 0.12);
+}
+
+.genre-filter-summary-label {
   font-weight: 600;
   font-size: 0.85rem;
-  color: #444;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+.genre-filter-summary--include .genre-filter-summary-label {
+  color: #2d3f32;
+}
+
+.genre-filter-summary--exclude .genre-filter-summary-label {
+  color: #5e2f2f;
+}
+
+.genre-filter-summary-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .genre-filter-buttons {

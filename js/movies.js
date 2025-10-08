@@ -590,10 +590,36 @@ function populateFeedGenreOptions() {
 
   container.innerHTML = '';
 
+  const layout = document.createElement('div');
+  layout.className = 'genre-filter-layout';
+
+  const includeSection = document.createElement('div');
+  includeSection.className = 'genre-filter-section genre-filter-section--include';
+
+  const includeHeading = document.createElement('span');
+  includeHeading.className = 'genre-filter-section-heading';
+  includeHeading.textContent = 'Focus genre';
+  includeSection.appendChild(includeHeading);
+
+  const includeSummary = document.createElement('div');
+  includeSummary.className = 'genre-filter-summary genre-filter-summary--include genre-filter-active genre-filter-include-active';
+
+  const includeLabel = document.createElement('span');
+  includeLabel.className = 'genre-filter-summary-label genre-filter-active-label';
+  includeLabel.textContent = 'Including';
+  includeSummary.appendChild(includeLabel);
+
+  const includeValueEl = document.createElement('div');
+  includeValueEl.className = 'genre-filter-summary-value genre-filter-active-value genre-filter-include-value';
+  includeSummary.appendChild(includeValueEl);
+
+  includeSection.appendChild(includeSummary);
+
   const buttonsWrap = document.createElement('div');
   buttonsWrap.className = 'genre-filter-buttons genre-filter-buttons--include';
   buttonsWrap.setAttribute('role', 'group');
   buttonsWrap.setAttribute('aria-label', 'Filter movies by genre');
+  includeSection.appendChild(buttonsWrap);
 
   const createButton = (value, label) => {
     const btn = document.createElement('button');
@@ -610,29 +636,29 @@ function populateFeedGenreOptions() {
     createButton(String(id), String(name || 'Unknown'));
   });
 
-  container.appendChild(buttonsWrap);
-
-  const activeWrap = document.createElement('div');
-  activeWrap.className = 'genre-filter-active genre-filter-include-active';
-
-  const label = document.createElement('span');
-  label.className = 'genre-filter-active-label';
-  label.textContent = 'Active filter:';
-  activeWrap.appendChild(label);
-
-  const valueEl = document.createElement('div');
-  valueEl.className = 'genre-filter-active-value genre-filter-include-value';
-  activeWrap.appendChild(valueEl);
-
-  container.appendChild(activeWrap);
+  layout.appendChild(includeSection);
 
   const excludeSection = document.createElement('div');
-  excludeSection.className = 'genre-filter-exclude-section';
+  excludeSection.className = 'genre-filter-section genre-filter-section--exclude';
 
   const excludeHeading = document.createElement('span');
-  excludeHeading.className = 'genre-filter-exclude-heading';
-  excludeHeading.textContent = 'Exclude genres';
+  excludeHeading.className = 'genre-filter-section-heading';
+  excludeHeading.textContent = 'Genre exclusions';
   excludeSection.appendChild(excludeHeading);
+
+  const excludeSummary = document.createElement('div');
+  excludeSummary.className = 'genre-filter-summary genre-filter-summary--exclude genre-filter-active genre-filter-exclude-active';
+
+  const excludeLabel = document.createElement('span');
+  excludeLabel.className = 'genre-filter-summary-label genre-filter-active-label';
+  excludeLabel.textContent = 'Excluding';
+  excludeSummary.appendChild(excludeLabel);
+
+  const excludeValue = document.createElement('div');
+  excludeValue.className = 'genre-filter-summary-value genre-filter-active-value genre-filter-exclude-value';
+  excludeSummary.appendChild(excludeValue);
+
+  excludeSection.appendChild(excludeSummary);
 
   const excludeButtonsWrap = document.createElement('div');
   excludeButtonsWrap.className = 'genre-filter-buttons genre-filter-buttons--exclude';
@@ -660,21 +686,8 @@ function populateFeedGenreOptions() {
   });
 
   excludeSection.appendChild(excludeButtonsWrap);
-
-  const excludeActiveWrap = document.createElement('div');
-  excludeActiveWrap.className = 'genre-filter-active genre-filter-exclude-active';
-
-  const excludeActiveLabel = document.createElement('span');
-  excludeActiveLabel.className = 'genre-filter-active-label';
-  excludeActiveLabel.textContent = 'Excluded genres:';
-  excludeActiveWrap.appendChild(excludeActiveLabel);
-
-  const excludeActiveValue = document.createElement('div');
-  excludeActiveValue.className = 'genre-filter-active-value genre-filter-exclude-value';
-  excludeActiveWrap.appendChild(excludeActiveValue);
-
-  excludeSection.appendChild(excludeActiveWrap);
-  container.appendChild(excludeSection);
+  layout.appendChild(excludeSection);
+  container.appendChild(layout);
 
   if (needsReset) {
     setFeedFilter('genreId', '', { sanitize: false, persist: true });
