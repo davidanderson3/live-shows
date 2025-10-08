@@ -31,7 +31,7 @@ function buildDom() {
         <input id="movieFilterMinVotes" type="number" />
         <input id="movieFilterStartYear" type="number" />
         <input id="movieFilterEndYear" type="number" />
-        <select id="movieFilterGenre"></select>
+        <div id="movieFilterGenre" class="genre-filter"></div>
       </div>
       <div id="movieStatus" class="movie-status"></div>
       <div id="movieList"></div>

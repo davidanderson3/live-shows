@@ -106,11 +106,9 @@
                   placeholder="e.g. 2024"
                 />
               </div>
-              <div class="movie-filter-field">
-                <label for="movieFilterGenre">Genre</label>
-                <select id="movieFilterGenre" name="movieFilterGenre">
-                  <option value="">All Genres</option>
-                </select>
+              <div class="movie-filter-field movie-filter-genre">
+                <span class="movie-filter-label">Genre</span>
+                <div id="movieFilterGenre" class="genre-filter"></div>
               </div>
             </div>
             <div id="movieStatus" class="movie-status" aria-live="polite"></div>

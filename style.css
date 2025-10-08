@@ -2445,6 +2445,17 @@ h2 {
   outline-offset: 2px;
 }
 
+.genre-filter-active-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.genre-filter-active-empty {
+  font-size: 0.85rem;
+  color: #555;
+}
+
 .movie-tab,
 .shows-tab {
   flex: 1 1 0;
@@ -2649,7 +2660,8 @@ h2 {
   gap: 0.25rem;
 }
 
-.movie-filter-field label {
+.movie-filter-field label,
+.movie-filter-label {
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -2664,6 +2676,22 @@ h2 {
 
 .movie-filter-field input {
   min-width: 6.5rem;
+}
+
+.movie-filter-field.movie-filter-genre {
+  flex: 1 1 100%;
+}
+
+.movie-filter-field.movie-filter-genre .genre-filter {
+  margin-bottom: 0;
+}
+
+.movie-filter-field.movie-filter-genre .genre-filter-buttons {
+  gap: 8px;
+}
+
+.movie-filter-field.movie-filter-genre .genre-filter-btn {
+  padding: 4px 10px;
 }
 
 .movie-status {
