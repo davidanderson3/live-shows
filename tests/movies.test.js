@@ -73,6 +73,8 @@ function attachWindow(dom) {
     configurable: true,
     get: () => global.localStorage
   });
+  window.prompt = vi.fn(() => '3');
+  global.prompt = window.prompt;
 }
 
 function configureFetchResponses(responses) {
@@ -116,6 +118,7 @@ describe('initMoviesPanel', () => {
     delete global.window;
     delete global.document;
     delete global.localStorage;
+    delete global.prompt;
   });
 
   it('renders cached movies with action buttons and metadata', async () => {
@@ -505,6 +508,9 @@ describe('initMoviesPanel', () => {
     const dom = buildDom();
     attachWindow(dom);
     window.tmdbApiKey = 'TEST_KEY';
+    const promptMock = vi.fn(() => '4');
+    window.prompt = promptMock;
+    global.prompt = promptMock;
 
     const page = {
       results: [
@@ -565,13 +571,14 @@ describe('initMoviesPanel', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     await new Promise(resolve => setTimeout(resolve, 0));
 
+    expect(promptMock).toHaveBeenCalledTimes(1);
     expect(document.querySelector('#movieList').textContent).toContain('Next Up');
     const slider = document.querySelector('#savedMoviesList input[type="range"]');
     expect(slider).not.toBeNull();
-    expect(slider.value).toBe('3');
+    expect(slider.value).toBe('4');
 
     const label = document.querySelector('#savedMoviesList .interest-row span');
-    expect(label?.textContent).toBe('Interest: 3');
+    expect(label?.textContent).toBe('Interest: 4');
 
     slider.value = '5';
     slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));

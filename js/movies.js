@@ -712,6 +712,41 @@ function makeActionButton(label, handler) {
   return btn;
 }
 
+function promptForInterest(initial = DEFAULT_INTEREST) {
+  const promptFn =
+    (typeof window !== 'undefined' && typeof window.prompt === 'function'
+      ? window.prompt.bind(window)
+      : null) ||
+    (typeof globalThis !== 'undefined' && typeof globalThis.prompt === 'function'
+      ? globalThis.prompt.bind(globalThis)
+      : null);
+
+  if (!promptFn) return initial;
+
+  const message =
+    'How interested are you in this movie? Enter a number from 1 (low) to 5 (high).';
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = promptFn(message, String(initial));
+    if (response == null) {
+      return null;
+    }
+
+    const trimmed = String(response).trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const value = Number(trimmed);
+    if (Number.isFinite(value)) {
+      const clamped = Math.max(1, Math.min(5, Math.round(value)));
+      return clamped;
+    }
+  }
+
+  return null;
+}
+
 function appendMeta(list, label, value) {
   if (!value && value !== 0) return;
   const item = document.createElement('li');
@@ -1487,7 +1522,19 @@ function renderFeed() {
     btnRow.append(
       makeActionButton('Watched Already', () => setStatus(movie, 'watched')),
       makeActionButton('Not Interested', () => setStatus(movie, 'notInterested')),
-      makeActionButton('Interested', () => setStatus(movie, 'interested', { interest: DEFAULT_INTEREST }))
+      makeActionButton(
+        'Interested',
+        async () => {
+          const existing = currentPrefs?.[String(movie.id)];
+          const initialInterest =
+            Number.isFinite(existing?.interest) && existing?.interest >= 1 && existing?.interest <= 5
+              ? Math.round(existing.interest)
+              : DEFAULT_INTEREST;
+          const interest = promptForInterest(initialInterest);
+          if (interest == null) return;
+          await setStatus(movie, 'interested', { interest });
+        }
+      )
     );
     info.appendChild(btnRow);
 
