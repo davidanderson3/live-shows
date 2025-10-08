@@ -736,20 +736,6 @@ function attachFeedFilterSelect(element, name) {
   element.addEventListener('change', handler);
 }
 
-function handleFeedGenreButtonClick(event) {
-  event.preventDefault();
-  const button = event.currentTarget;
-  if (!button) return;
-
-  const value = button.dataset.genre ?? '';
-  const currentValue = feedFilterState.genreId ?? '';
-  const nextValue = currentValue === value ? '' : value;
-
-  if (nextValue === currentValue) return;
-
-  setFeedFilter('genreId', nextValue, { sanitize: true, persist: true });
-}
-
 function handleFeedExcludeGenreButtonClick(event) {
   event.preventDefault();
   const button = event.currentTarget;
