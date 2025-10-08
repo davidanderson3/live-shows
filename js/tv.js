@@ -93,6 +93,15 @@ const STATUS_TONE_CLASSES = Object.freeze({
   error: 'movie-status--error'
 });
 
+function escapeForAttribute(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 let loadAttemptCounter = 0;
 
 function formatTimestamp(value) {
@@ -120,15 +129,71 @@ function summarizeError(err) {
   return 'Unknown error';
 }
 
-function updateFeedStatus(message, { tone = 'info' } = {}) {
+function updateFeedStatus(message, { tone = 'info', showSpinner = false } = {}) {
   const statusEl = domRefs.feedStatus;
   if (!statusEl) return;
-  statusEl.textContent = message;
+  const normalizedMessage = typeof message === 'string' ? message : String(message ?? '');
+  const isCooldownMessage = /before requesting more tv shows/i.test(normalizedMessage);
+
+  if (isCooldownMessage) {
+    const fallbackLabel = normalizedMessage.trim()
+      ? normalizedMessage.trim()
+      : 'Preparing more TV shows shortly';
+    const ariaLabel = escapeForAttribute(fallbackLabel);
+    statusEl.innerHTML = `
+      <div class="tv-status__party" role="status" aria-live="polite"${
+        ariaLabel ? ` aria-label="${ariaLabel}"` : ''
+      }>
+        <span class="movie-status__sr">${ariaLabel || 'Preparing more TV shows shortly'}</span>
+        <div class="tv-status__stage">
+          <span class="tv-status__dancer tv-status__dancer--left"></span>
+          <span class="tv-status__dancer tv-status__dancer--center"></span>
+          <span class="tv-status__dancer tv-status__dancer--right"></span>
+        </div>
+        <div class="tv-status__lights">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    `;
+    statusEl.setAttribute('aria-busy', 'true');
+    if (normalizedMessage.trim()) {
+      console.info(normalizedMessage);
+    }
+  } else if (showSpinner) {
+    const ariaLabel = normalizedMessage.trim() ? escapeForAttribute(normalizedMessage) : '';
+    statusEl.innerHTML = `
+      <div class="tv-status__party" role="status" aria-live="polite"${
+        ariaLabel ? ` aria-label="${ariaLabel}"` : ''
+      }>
+        <span class="movie-status__sr">${ariaLabel}</span>
+        <div class="tv-status__stage">
+          <span class="tv-status__dancer tv-status__dancer--left"></span>
+          <span class="tv-status__dancer tv-status__dancer--center"></span>
+          <span class="tv-status__dancer tv-status__dancer--right"></span>
+        </div>
+        <div class="tv-status__lights">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    `;
+    statusEl.setAttribute('aria-busy', 'true');
+    if (normalizedMessage.trim()) {
+      console.info(normalizedMessage);
+    }
+  } else {
+    statusEl.textContent = normalizedMessage;
+    statusEl.removeAttribute('aria-busy');
+  }
   Object.values(STATUS_TONE_CLASSES).forEach(cls => {
     statusEl.classList.remove(cls);
   });
   const toneClass = STATUS_TONE_CLASSES[tone] || STATUS_TONE_CLASSES.info;
   statusEl.classList.add(toneClass);
+  statusEl.classList.toggle('movie-status--loading', Boolean(showSpinner || isCooldownMessage));
 }
 
 function clampUserRating(value) {
@@ -1634,7 +1699,10 @@ async function requestAdditionalMovies() {
   if (refillInProgress) {
     const started = formatTimestamp(lastRefillAttempt);
     const label = started ? ` (started at ${started})` : '';
-    updateFeedStatus(`Movie request already in progress${label}.`, { tone: 'info' });
+    updateFeedStatus(`TV show request already in progress${label}.`, {
+      tone: 'info',
+      showSpinner: true
+    });
     return;
   }
   if (now - lastRefillAttempt < REFILL_COOLDOWN_MS) {
@@ -1673,7 +1741,7 @@ function renderFeed() {
   if (!currentMovies.length) {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more TV shows...</em>';
-      updateFeedStatus('Waiting for TV shows from TMDB...', { tone: 'info' });
+      updateFeedStatus('Waiting for TV shows from TMDB...', { tone: 'info', showSpinner: true });
       return;
     }
     if (feedExhausted) {
@@ -1689,7 +1757,10 @@ function renderFeed() {
       return;
     }
     listEl.innerHTML = '<em>Loading more TV shows...</em>';
-    updateFeedStatus('Requesting the first batch of TV shows...', { tone: 'info' });
+    updateFeedStatus('Requesting the first batch of TV shows...', {
+      tone: 'info',
+      showSpinner: true
+    });
     requestAdditionalMovies();
     return;
   }
@@ -1700,14 +1771,15 @@ function renderFeed() {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more TV shows...</em>';
       updateFeedStatus('All current results are hidden; waiting for new TV shows...', {
-        tone: 'info'
+        tone: 'info',
+        showSpinner: true
       });
       return;
     }
     listEl.innerHTML = '<em>Loading more TV shows...</em>';
     updateFeedStatus(
       'All fetched TV shows are hidden by saved statuses. Looking for fresh titles...',
-      { tone: 'warning' }
+      { tone: 'warning', showSpinner: true }
     );
     requestAdditionalMovies();
     return;
@@ -1719,7 +1791,8 @@ function renderFeed() {
     if (refillInProgress) {
       listEl.innerHTML = '<em>Loading more TV shows...</em>';
       updateFeedStatus('Filters removed the current batch; waiting for more TV shows...', {
-        tone: 'info'
+        tone: 'info',
+        showSpinner: true
       });
       return;
     }
@@ -1739,9 +1812,9 @@ function renderFeed() {
     const hiddenByFilters = availableMovies.length;
     updateFeedStatus(
       hiddenByFilters
-        ? `Filters are hiding ${hiddenByFilters} movie${hiddenByFilters === 1 ? '' : 's'}; requesting more options...`
+        ? `Filters are hiding ${hiddenByFilters} show${hiddenByFilters === 1 ? '' : 's'}; requesting more options...`
         : 'Filters removed the current batch; requesting more TV shows...',
-      { tone: 'warning' }
+      { tone: 'warning', showSpinner: true }
     );
     requestAdditionalMovies();
     return;
@@ -1807,7 +1880,7 @@ function renderFeed() {
   listEl.innerHTML = '';
   listEl.appendChild(ul);
   updateFeedStatus(
-    `Showing ${filteredMovies.length} movie${filteredMovies.length === 1 ? '' : 's'} (updated ${formatTimestamp(
+    `Showing ${filteredMovies.length} show${filteredMovies.length === 1 ? '' : 's'} (updated ${formatTimestamp(
       Date.now()
     )}).`,
     { tone: 'success' }
@@ -2717,7 +2790,7 @@ async function loadMovies({ attemptStart } = {}) {
     `Loading TV shows (attempt ${attemptNumber})${
       startedLabel ? ` started at ${startedLabel}` : ''
     }. ${attemptIntro}${fallbackNote}`,
-    { tone: 'info' }
+    { tone: 'info', showSpinner: true }
   );
 
   listEl.innerHTML = '<em>Loading...</em>';
