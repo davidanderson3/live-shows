@@ -5,6 +5,7 @@ function setupDom() {
   return new JSDOM(
     `
       <div id="restaurantsPanel">
+      <input id="yelpApiKeyInput" />
       <div id="restaurantsMap"></div>
       <div id="restaurantsResults">
         <div class="restaurants-tabs" role="tablist">
@@ -56,10 +57,15 @@ describe('initRestaurantsPanel', () => {
     });
     global.navigator = window.navigator;
 
-    const sampleData = [
-      { name: 'Closest Diner', rating: 3.9, reviewCount: 10, distance: 500 },
-      { name: 'Top Rated', rating: 4.8, reviewCount: 45, distance: 1200 },
-      { name: 'Far Favorite', rating: 5.0, reviewCount: 200, distance: 5000 }
+    const initialResults = [
+      { id: 'near-1', name: 'Closest Diner', rating: 3.9, reviewCount: 10, distance: 500 },
+      { id: 'near-2', name: 'Top Rated', rating: 4.8, reviewCount: 45, distance: 1200 }
+    ];
+    const expandedResults = [
+      { id: 'far-1', name: 'Far Favorite', rating: 5.0, reviewCount: 200, distance: 5000 }
+    ];
+    const cityResults = [
+      { id: 'near-1', name: 'Closest Diner', rating: 3.9, reviewCount: 10, distance: 500 }
     ];
 
     global.fetch = vi
@@ -70,18 +76,30 @@ describe('initRestaurantsPanel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve(sampleData)
+        json: () => Promise.resolve(initialResults)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(expandedResults)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(cityResults)
       });
 
     await initRestaurantsPanel();
 
     expect(geoMock.getCurrentPosition).toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(fetch.mock.calls[0][0]).toContain('reverse');
     expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
     expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
     expect(fetch.mock.calls[1][0]).toContain('limit=60');
     expect(fetch.mock.calls[1][0]).toContain('city=Austin');
+    expect(fetch.mock.calls[2][0]).toContain('radius=25');
+    expect(fetch.mock.calls[3][0]).not.toContain('latitude=30.2672');
+    expect(fetch.mock.calls[3][0]).not.toContain('longitude=-97.7431');
+    expect(fetch.mock.calls[3][0]).toContain('city=Austin');
 
     const results = document.getElementById('restaurantsResults');
     const headings = Array.from(results.querySelectorAll('h3')).map(el => el.textContent);
@@ -148,6 +166,81 @@ describe('initRestaurantsPanel', () => {
     expect(results.textContent).toContain('failed');
   });
 
+  it('prompts for a Yelp API key and retries when provided', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 33.749, longitude: -84.388 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const retryResults = [
+      { id: 'retry-1', name: 'Retry Diner', rating: 4.1, reviewCount: 25, distance: 800 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Atlanta' } })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: 'missing yelp api key' })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Atlanta' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(retryResults)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      });
+
+    await initRestaurantsPanel();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const message = document.querySelector('#restaurantsNearby .restaurants-message');
+    expect(message?.textContent).toContain('Yelp Fusion API key');
+
+    const apiInput = document.getElementById('yelpApiKeyInput');
+    apiInput.value = 'demoKey';
+    apiInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch.mock.calls[3][0]).toContain('apiKey=demoKey');
+    expect(geoMock.getCurrentPosition).toHaveBeenCalledTimes(2);
+    expect(window.localStorage.getItem('restaurants:apiKey')).toBe('demoKey');
+
+    const headings = Array.from(
+      document.querySelectorAll('#restaurantsNearby h3')
+    ).map(el => el.textContent);
+    expect(headings).toEqual(['Retry Diner']);
+  });
+
   it('renders all restaurants returned by the API', async () => {
     const dom = setupDom();
     global.window = dom.window;
@@ -166,8 +259,8 @@ describe('initRestaurantsPanel', () => {
     global.navigator = window.navigator;
 
     const sampleData = [
-      { name: 'Local Favorite', rating: 4.5, reviewCount: 210, distance: 2000 },
-      { name: 'Distant Gem', rating: 5.0, reviewCount: 12, distance: 500000 }
+      { id: 'local', name: 'Local Favorite', rating: 4.5, reviewCount: 210, distance: 2000 },
+      { id: 'distant', name: 'Distant Gem', rating: 5.0, reviewCount: 12, distance: 500000 }
     ];
 
     global.fetch = vi
@@ -179,6 +272,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -206,8 +307,20 @@ describe('initRestaurantsPanel', () => {
     global.navigator = window.navigator;
 
     const expandedRadiusData = [
-      { name: 'Fallback Favorite', rating: 4.5, reviewCount: 120, distance: 900 },
-      { name: 'Backup Bistro', rating: 4.2, reviewCount: 80, distance: 1500 }
+      {
+        id: 'fallback-1',
+        name: 'Fallback Favorite',
+        rating: 4.5,
+        reviewCount: 120,
+        distance: 900
+      },
+      {
+        id: 'fallback-2',
+        name: 'Backup Bistro',
+        rating: 4.2,
+        reviewCount: 80,
+        distance: 1500
+      }
     ];
 
     global.fetch = vi
@@ -223,11 +336,15 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(expandedRadiusData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(fetch.mock.calls[1][0]).toContain('latitude=30.2672');
     expect(fetch.mock.calls[1][0]).toContain('longitude=-97.7431');
     expect(fetch.mock.calls[1][0]).toContain('limit=60');
@@ -363,6 +480,7 @@ describe('initRestaurantsPanel', () => {
 
     const sampleData = [
       {
+        id: 'far-bistro',
         name: 'Far Bistro',
         rating: 4.9,
         reviewCount: 320,
@@ -371,6 +489,7 @@ describe('initRestaurantsPanel', () => {
         longitude: -122.2711
       },
       {
+        id: 'nearby-cafe',
         name: 'Nearby Cafe',
         rating: 3.1,
         reviewCount: 12,
@@ -389,6 +508,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -430,6 +557,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -487,6 +622,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -540,6 +683,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -598,6 +749,14 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve(sampleData)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -628,5 +787,56 @@ describe('initRestaurantsPanel', () => {
     const list = hiddenSection?.querySelector('.restaurants-hidden-list');
     expect(list?.hidden).toBe(false);
     expect(list?.textContent).toContain('Top Rated');
+  });
+
+  it('falls back to city search when coordinate radius searches find too few results', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 44.0, longitude: -110.0 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    const cityOnlyResults = [
+      { id: 'city-1', name: 'City Diner', rating: 4.2, reviewCount: 12, distance: 80467 }
+    ];
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Yellowstone' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(cityOnlyResults)
+      });
+
+    await initRestaurantsPanel();
+
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls[2][0]).toContain('radius=25');
+    expect(fetch.mock.calls[3][0]).toContain('city=Yellowstone');
+    expect(fetch.mock.calls[3][0]).not.toContain('latitude=44');
+
+    const nearby = document.querySelectorAll('#restaurantsNearby h3');
+    expect(Array.from(nearby).map(el => el.textContent)).toEqual(['City Diner']);
   });
 });

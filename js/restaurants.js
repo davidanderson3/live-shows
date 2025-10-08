@@ -7,6 +7,7 @@ const MAX_NEARBY_RESULTS = 200;
 const NEARBY_RESULTS_INCREMENT = 40;
 const YELP_MAX_RADIUS_MILES = 25;
 const NEARBY_RADIUS_STEPS_MILES = [null, YELP_MAX_RADIUS_MILES];
+const MIN_NEARBY_RESULTS_THRESHOLD = 20;
 
 let initialized = false;
 let mapInstance = null;
@@ -21,6 +22,8 @@ const STORAGE_KEYS = {
   hidden: 'restaurants:hidden'
 };
 
+const YELP_API_KEY_STORAGE_KEY = 'restaurants:apiKey';
+
 let savedRestaurants = [];
 let favoriteRestaurants = [];
 let hiddenRestaurants = [];
@@ -34,6 +37,8 @@ let currentView = 'nearby';
 let isFetchingNearby = false;
 let userLocation = null;
 let nearbyRadiusIndex = 0;
+let yelpApiKey = readStoredApiKey();
+let needsApiKeyRetry = false;
 
 const domRefs = {
   resultsRoot: null,
@@ -41,7 +46,8 @@ const domRefs = {
   savedContainer: null,
   favoritesContainer: null,
   hiddenContainer: null,
-  tabButtons: []
+  tabButtons: [],
+  apiKeyInput: null
 };
 
 function buildRestaurantsUrl(params) {
@@ -118,6 +124,39 @@ function dedupeRestaurants(items = []) {
   return Array.from(map.values());
 }
 
+function mergeRestaurantResults(primary = [], additional = []) {
+  const merged = [];
+  const seenIds = new Set();
+  const appendList = list => {
+    if (!Array.isArray(list)) return;
+    list.forEach(item => {
+      const sanitized = sanitizeRestaurant(item);
+      if (!sanitized) return;
+      const normalizedId = normalizeId(sanitized.id);
+      const fallbackKey = [
+        sanitized.name,
+        sanitized.address,
+        sanitized.city,
+        sanitized.latitude,
+        sanitized.longitude
+      ]
+        .map(value => {
+          if (value === undefined || value === null) return '';
+          const text = typeof value === 'number' ? value.toFixed(6) : String(value);
+          return text.trim().toLowerCase();
+        })
+        .join('|');
+      const dedupeKey = normalizedId || fallbackKey || `__generated_${merged.length}`;
+      if (seenIds.has(dedupeKey)) return;
+      seenIds.add(dedupeKey);
+      merged.push(sanitized);
+    });
+  };
+  appendList(primary);
+  appendList(additional);
+  return merged;
+}
+
 function readStoredList(key) {
   if (typeof window === 'undefined' || !window.localStorage) return [];
   try {
@@ -131,10 +170,31 @@ function readStoredList(key) {
   }
 }
 
+function readStoredApiKey() {
+  if (typeof window === 'undefined' || !window.localStorage) return '';
+  try {
+    const raw = window.localStorage.getItem(YELP_API_KEY_STORAGE_KEY);
+    return typeof raw === 'string' ? raw : '';
+  } catch {
+    return '';
+  }
+}
+
 function writeStoredList(key, list) {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(key, JSON.stringify(list));
+  } catch {}
+}
+
+function writeStoredApiKey(value) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    if (value) {
+      window.localStorage.setItem(YELP_API_KEY_STORAGE_KEY, value);
+    } else {
+      window.localStorage.removeItem(YELP_API_KEY_STORAGE_KEY);
+    }
   } catch {}
 }
 
@@ -150,6 +210,7 @@ function loadStoredState() {
     )
   );
   hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
+  yelpApiKey = readStoredApiKey();
   syncFavoritesWithSaved();
 }
 
@@ -163,6 +224,28 @@ function persistFavorites() {
 
 function persistHidden() {
   writeStoredList(STORAGE_KEYS.hidden, hiddenRestaurants);
+}
+
+function setYelpApiKey(value, { persist = true, syncInput = true } = {}) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (normalized === yelpApiKey) {
+    if (syncInput) syncApiKeyInput();
+    return;
+  }
+  yelpApiKey = normalized;
+  if (persist) {
+    writeStoredApiKey(yelpApiKey);
+  }
+  if (syncInput) {
+    syncApiKeyInput();
+  }
+}
+
+function syncApiKeyInput() {
+  if (!domRefs.apiKeyInput) return;
+  if (domRefs.apiKeyInput.value !== yelpApiKey) {
+    domRefs.apiKeyInput.value = yelpApiKey;
+  }
 }
 
 function isSaved(id) {
@@ -1307,6 +1390,10 @@ async function fetchRestaurants({
     params.set('city', String(city));
   }
 
+  if (yelpApiKey) {
+    params.set('apiKey', yelpApiKey);
+  }
+
   const url = buildRestaurantsUrl(params);
   const res = await fetch(url);
   if (!res.ok) {
@@ -1316,6 +1403,29 @@ async function fetchRestaurants({
   }
   const data = await res.json();
   return Array.isArray(data) ? data : [];
+}
+
+function isMissingYelpApiKeyError(err) {
+  if (!err) return false;
+  const message = typeof err.message === 'string' ? err.message : '';
+  if (!message) return false;
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'missing yelp api key' || normalized === 'missing_yelp_api_key') {
+    return true;
+  }
+  return normalized.includes('missing') && normalized.includes('yelp') && normalized.includes('key');
+}
+
+function interpretRestaurantsError(err) {
+  if (!err) return 'Failed to load restaurants.';
+  if (isMissingYelpApiKeyError(err)) {
+    return 'Add your Yelp Fusion API key above or configure YELP_API_KEY on the server to search for nearby restaurants.';
+  }
+  if (typeof err.message === 'string' && err.message.trim()) {
+    return err.message;
+  }
+  return 'Failed to load restaurants.';
 }
 
 function getCurrentPosition() {
@@ -1331,6 +1441,11 @@ function getCurrentPosition() {
 async function loadNearbyRestaurants(container) {
   const targetContainer = container || domRefs.nearbyContainer;
   if (!targetContainer) return;
+
+  if (!isFetchingNearby) {
+    // Avoid stale retry flags when manually triggering a refresh.
+    needsApiKeyRetry = false;
+  }
 
   isFetchingNearby = true;
   requestedNearbyLimit = TARGET_NEARBY_RESULTS;
@@ -1372,9 +1487,20 @@ async function loadNearbyRestaurants(container) {
       Number.isFinite(initialRadius) && initialRadius > 0
         ? { ...baseOptions, radiusMiles: initialRadius }
         : { ...baseOptions };
-    let data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
+    let aggregatedResults = [];
 
-    while ((!Array.isArray(data) || data.length === 0) && canExpandNearbyRadius()) {
+    const appendResults = results => {
+      if (!Array.isArray(results) || !results.length) return;
+      aggregatedResults = mergeRestaurantResults(aggregatedResults, results);
+    };
+
+    let data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
+    appendResults(data);
+
+    while (
+      aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD &&
+      canExpandNearbyRadius()
+    ) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
       const nextRadius = advanceNearbyRadius();
       const nextOptions =
@@ -1383,17 +1509,27 @@ async function loadNearbyRestaurants(container) {
           : { ...baseOptions };
       fetchOptions = nextOptions;
       data = await fetchRestaurants({ ...nextOptions, limit: initialLimit });
+      appendResults(data);
     }
 
-    if ((!Array.isArray(data) || data.length === 0) && city) {
+    if (aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD && city) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
-      fetchOptions = { ...baseOptions, skipCoordinates: true };
-      data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
+      const fallbackOptions = { city, skipCoordinates: true };
+      const cityResults = await fetchRestaurants({ ...fallbackOptions, limit: initialLimit });
+      appendResults(cityResults);
+      if (Array.isArray(cityResults) && cityResults.length) {
+        fetchOptions = fallbackOptions;
+      }
     }
 
-    rawNearbyRestaurants = Array.isArray(data) ? data : [];
+    rawNearbyRestaurants = Array.isArray(aggregatedResults)
+      ? aggregatedResults
+      : Array.isArray(data)
+        ? data
+        : [];
     requestedNearbyLimit = initialLimit;
     lastNearbyFetchOptions = fetchOptions;
+    needsApiKeyRetry = false;
     updateNearbyRestaurants();
     isFetchingNearby = false;
     renderAll();
@@ -1406,7 +1542,10 @@ async function loadNearbyRestaurants(container) {
     clearUserLocation();
     requestedNearbyLimit = TARGET_NEARBY_RESULTS;
     lastNearbyFetchOptions = null;
-    const message = err?.message || 'Failed to load restaurants.';
+    if (isMissingYelpApiKeyError(err)) {
+      needsApiKeyRetry = true;
+    }
+    const message = interpretRestaurantsError(err);
     renderMessage(targetContainer, message);
     renderSavedSection();
     renderHiddenSection();
@@ -1427,8 +1566,37 @@ export async function initRestaurantsPanel() {
   domRefs.favoritesContainer = document.getElementById('restaurantsFavorites');
   domRefs.hiddenContainer = document.getElementById('restaurantsHiddenSection');
   domRefs.tabButtons = Array.from(resultsContainer.querySelectorAll('.restaurants-tab'));
+  domRefs.apiKeyInput = document.getElementById('yelpApiKeyInput');
 
   loadStoredState();
+  syncApiKeyInput();
+
+  if (domRefs.apiKeyInput) {
+    const commitApiKey = () => {
+      const value = domRefs.apiKeyInput?.value || '';
+      const previousKey = yelpApiKey;
+      setYelpApiKey(value, { persist: true, syncInput: true });
+      if (
+        yelpApiKey &&
+        !isFetchingNearby &&
+        (needsApiKeyRetry || (!rawNearbyRestaurants.length && previousKey !== yelpApiKey))
+      ) {
+        loadNearbyRestaurants(domRefs.nearbyContainer);
+      }
+    };
+
+    domRefs.apiKeyInput.addEventListener('change', commitApiKey);
+    domRefs.apiKeyInput.addEventListener('blur', commitApiKey);
+    domRefs.apiKeyInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitApiKey();
+        if (yelpApiKey && !isFetchingNearby) {
+          loadNearbyRestaurants(domRefs.nearbyContainer);
+        }
+      }
+    });
+  }
 
   domRefs.tabButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -1469,6 +1637,18 @@ if (typeof window !== 'undefined') {
       renderSavedSection();
       renderFavoritesSection();
       updateMapForCurrentView();
+    } else if (event.key === YELP_API_KEY_STORAGE_KEY) {
+      const previousKey = yelpApiKey;
+      yelpApiKey = readStoredApiKey();
+      syncApiKeyInput();
+      if (
+        yelpApiKey &&
+        yelpApiKey !== previousKey &&
+        !isFetchingNearby &&
+        (needsApiKeyRetry || !rawNearbyRestaurants.length)
+      ) {
+        loadNearbyRestaurants(domRefs.nearbyContainer);
+      }
     }
   });
   window.initRestaurantsPanel = initRestaurantsPanel;

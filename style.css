@@ -3344,6 +3344,42 @@ h2 {
   width: 100%;
 }
 
+.restaurants-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.restaurants-controls__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #4f625a;
+}
+
+.restaurants-controls__input {
+  border: 1px solid rgba(33, 65, 54, 0.18);
+  border-radius: 999px;
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  color: #2f3c35;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.restaurants-controls__input:focus,
+.restaurants-controls__input:focus-visible {
+  outline: none;
+  border-color: rgba(57, 132, 111, 0.75);
+  box-shadow: 0 0 0 3px rgba(122, 166, 140, 0.25);
+}
+
+.restaurants-api-help {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #4f5b55;
+}
+
 @media (min-width: 960px) {
   .restaurants-layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.65fr);
