@@ -14,7 +14,9 @@ const elements = {
   tokenInput: null,
   discoverButton: null,
   status: null,
-  list: null
+  list: null,
+  debugContainer: null,
+  debugOutput: null
 };
 
 let discoverLabel = 'Discover';
@@ -96,6 +98,8 @@ function cacheElements() {
   elements.discoverButton = document.getElementById('eventbriteDiscoverBtn');
   elements.status = document.getElementById('eventbriteStatus');
   elements.list = document.getElementById('eventbriteList');
+  elements.debugContainer = document.getElementById('eventbriteDebug');
+  elements.debugOutput = document.getElementById('eventbriteDebugOutput');
   if (elements.discoverButton) {
     discoverLabel = elements.discoverButton.textContent || discoverLabel;
   }
@@ -129,6 +133,56 @@ function setStatus(message, tone = 'info') {
   if (!elements.status) return;
   elements.status.textContent = message || '';
   elements.status.dataset.tone = tone;
+}
+
+function setDebugInfo(info) {
+  if (!elements.debugContainer || !elements.debugOutput) {
+    return;
+  }
+
+  if (!info) {
+    elements.debugContainer.hidden = true;
+    elements.debugContainer.removeAttribute('data-state');
+    elements.debugOutput.textContent = '';
+    return;
+  }
+
+  const { requestUrl, response, responseText, error } = info;
+  const hasRequest = typeof requestUrl === 'string' && requestUrl.length > 0;
+  const hasResponse =
+    response && typeof response === 'object' && Object.keys(response).length > 0;
+  const hasText = typeof responseText === 'string' && responseText.trim().length > 0;
+
+  if (!hasRequest && !hasResponse && !hasText) {
+    elements.debugContainer.hidden = true;
+    elements.debugContainer.removeAttribute('data-state');
+    elements.debugOutput.textContent = '';
+    return;
+  }
+
+  const sections = [];
+
+  if (hasRequest) {
+    sections.push(`Request URL:\n${requestUrl}`);
+  }
+
+  if (error) {
+    sections.push(`Error:\n${error}`);
+  }
+
+  if (hasResponse) {
+    try {
+      sections.push(`Response JSON:\n${JSON.stringify(response, null, 2)}`);
+    } catch (err) {
+      sections.push('Response JSON: [unserializable]');
+    }
+  } else if (hasText) {
+    sections.push(`Response Body:\n${responseText}`);
+  }
+
+  elements.debugOutput.textContent = sections.join('\n\n');
+  elements.debugContainer.hidden = false;
+  elements.debugContainer.dataset.state = error ? 'error' : 'success';
 }
 
 function setLoading(isLoading) {
@@ -341,17 +395,27 @@ async function fetchEventbriteEvents({ latitude, longitude, token }) {
     data = text ? JSON.parse(text) : null;
   } catch (err) {
     console.warn('Unable to parse Eventbrite response', err);
-    throw new Error('Received an invalid response from Eventbrite.');
+    const parseError = new Error('Received an invalid response from Eventbrite.');
+    parseError.requestUrl = url;
+    parseError.responseText = text;
+    throw parseError;
   }
 
   if (!response.ok) {
     const message = data?.error || `Eventbrite request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
+    error.requestUrl = url;
+    error.responseText = text;
     throw error;
   }
 
-  return Array.isArray(data?.events) ? data.events : [];
+  return {
+    events: Array.isArray(data?.events) ? data.events : [],
+    raw: data,
+    url,
+    responseText: text
+  };
 }
 
 async function discoverNearbyShows() {
@@ -363,6 +427,7 @@ async function discoverNearbyShows() {
 
   try {
     setStatus('Finding your location…');
+    setDebugInfo(null);
     const location = await requestLocation();
 
     if (!location) {
@@ -375,22 +440,32 @@ async function discoverNearbyShows() {
     saveToken(token);
 
     setStatus('Searching Eventbrite for nearby music events…');
-    const events = await fetchEventbriteEvents({
+    const result = await fetchEventbriteEvents({
       latitude: location.latitude,
       longitude: location.longitude,
       token
     });
 
-    renderEvents(events);
+    renderEvents(result.events);
+    setDebugInfo({
+      requestUrl: result.url,
+      response: result.raw,
+      responseText: result.responseText
+    });
 
-    if (events.length > 0) {
-      setStatus(`Found ${events.length} upcoming event${events.length === 1 ? '' : 's'}.`);
+    if (result.events.length > 0) {
+      setStatus(`Found ${result.events.length} upcoming event${result.events.length === 1 ? '' : 's'}.`);
     } else {
       setStatus('No music events found near you right now.', 'warning');
     }
   } catch (err) {
     console.error('Unable to load Eventbrite events', err);
     setStatus(interpretEventbriteError(err), 'error');
+    setDebugInfo({
+      requestUrl: err.requestUrl,
+      responseText: err.responseText,
+      error: err.message
+    });
     clearList();
   } finally {
     setLoading(false);
