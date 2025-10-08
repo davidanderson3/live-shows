@@ -12,6 +12,9 @@ const YELP_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 const YELP_MAX_PAGE_LIMIT = 50;
 const YELP_DEFAULT_TOTAL_LIMIT = 120;
 const YELP_ABSOLUTE_MAX_LIMIT = 200;
+const YELP_DETAILS_BASE_URL = 'https://api.yelp.com/v3/businesses';
+const YELP_DETAILS_MAX_ENRICH = 40;
+const YELP_DETAILS_CONCURRENCY = 5;
 const EVENTBRITE_BASE_URL = 'https://www.eventbriteapi.com/v3/events/search/';
 const EVENTBRITE_CACHE_COLLECTION = 'eventbriteCache';
 const EVENTBRITE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -67,8 +70,151 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit, radiusMi
   return parts;
 }
 
-function simplifyBusiness(biz) {
+function parseYelpBoolean(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (['1', 'true', 'yes', 'y'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'n'].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function deriveYelpServiceOptions({ searchBiz = null, details = null } = {}) {
+  const result = { takeout: null, sitDown: null };
+
+  function setOption(key, value) {
+    if (typeof value !== 'boolean') return;
+    if (value) {
+      result[key] = true;
+    } else if (result[key] !== true) {
+      result[key] = false;
+    }
+  }
+
+  function applyTransactions(transactions) {
+    if (!Array.isArray(transactions)) return;
+    const normalized = transactions
+      .map(item => (typeof item === 'string' ? item.trim().toLowerCase() : ''))
+      .filter(Boolean);
+    if (normalized.some(entry => ['pickup', 'delivery', 'takeout'].includes(entry))) {
+      setOption('takeout', true);
+    }
+    if (
+      normalized.some(entry => ['dine-in', 'dinein', 'dine_in', 'restaurant_reservation'].includes(entry))
+    ) {
+      setOption('sitDown', true);
+    }
+  }
+
+  applyTransactions(searchBiz?.transactions);
+  applyTransactions(details?.transactions);
+
+  const attributes =
+    (details && typeof details.attributes === 'object' && details.attributes) ||
+    (searchBiz && typeof searchBiz.attributes === 'object' && searchBiz.attributes) ||
+    {};
+
+  const takeoutAttr = parseYelpBoolean(attributes.RestaurantsTakeOut);
+  if (takeoutAttr !== null) setOption('takeout', takeoutAttr);
+
+  const deliveryAttr = parseYelpBoolean(attributes.RestaurantsDelivery);
+  if (deliveryAttr !== null) setOption('takeout', deliveryAttr);
+
+  const tableServiceAttr = parseYelpBoolean(attributes.RestaurantsTableService);
+  if (tableServiceAttr !== null) setOption('sitDown', tableServiceAttr);
+
+  const reservationsAttr = parseYelpBoolean(attributes.RestaurantsReservations);
+  if (reservationsAttr) {
+    setOption('sitDown', true);
+  } else if (reservationsAttr === false) {
+    setOption('sitDown', false);
+  }
+
+  const serviceOptions =
+    details && typeof details.service_options === 'object' ? details.service_options : null;
+  if (serviceOptions) {
+    const takeoutOption = parseYelpBoolean(serviceOptions.takeout);
+    if (takeoutOption !== null) setOption('takeout', takeoutOption);
+    const dineInOption = parseYelpBoolean(serviceOptions.dine_in ?? serviceOptions.dineIn);
+    if (dineInOption !== null) setOption('sitDown', dineInOption);
+  }
+
+  return result;
+}
+
+async function fetchYelpBusinessDetails(businesses, apiKey, { limit, concurrency } = {}) {
+  if (!Array.isArray(businesses) || !businesses.length) {
+    return new Map();
+  }
+  const uniqueIds = [];
+  const seen = new Set();
+  for (const biz of businesses) {
+    const id = typeof biz?.id === 'string' ? biz.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    uniqueIds.push(id);
+    if (limit && uniqueIds.length >= limit) break;
+  }
+
+  const results = new Map();
+  const ids = uniqueIds;
+  if (!ids.length) return results;
+
+  const workerCount = Math.max(1, Math.min(concurrency || 1, ids.length));
+  let index = 0;
+
+  async function runWorker() {
+    while (index < ids.length) {
+      const currentIndex = index++;
+      const id = ids[currentIndex];
+      const url = `${YELP_DETAILS_BASE_URL}/${encodeURIComponent(id)}`;
+      try {
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`
+          }
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const data = await response.json().catch(() => null);
+        if (!data || typeof data !== 'object') {
+          continue;
+        }
+        const detailSubset = {
+          attributes:
+            data.attributes && typeof data.attributes === 'object' ? data.attributes : undefined,
+          transactions: Array.isArray(data.transactions) ? data.transactions : undefined,
+          service_options:
+            data.service_options && typeof data.service_options === 'object'
+              ? data.service_options
+              : undefined
+        };
+        results.set(id, detailSubset);
+      } catch (err) {
+        console.error('Yelp business details fetch failed', err);
+      }
+    }
+  }
+
+  const workers = Array.from({ length: workerCount }, () => runWorker());
+  await Promise.all(workers);
+  return results;
+}
+
+function simplifyBusiness(biz, { details } = {}) {
   if (!biz || typeof biz !== 'object') return null;
+  const serviceOptions = deriveYelpServiceOptions({ searchBiz: biz, details });
+  const hasServiceInfo =
+    typeof serviceOptions.takeout === 'boolean' || typeof serviceOptions.sitDown === 'boolean';
   return {
     id: biz.id,
     name: biz.name,
@@ -90,7 +236,8 @@ function simplifyBusiness(biz) {
     longitude:
       typeof biz.coordinates?.longitude === 'number' ? biz.coordinates.longitude : null,
     url: biz.url || '',
-    distance: typeof biz.distance === 'number' ? biz.distance : null
+    distance: typeof biz.distance === 'number' ? biz.distance : null,
+    ...(hasServiceInfo ? { serviceOptions } : {})
   };
 }
 
@@ -631,7 +778,13 @@ exports.restaurantsProxy = functions
         }
       }
 
-      const simplified = aggregated.map(simplifyBusiness).filter(Boolean);
+      const detailsMap = await fetchYelpBusinessDetails(aggregated, apiKey, {
+        limit: YELP_DETAILS_MAX_ENRICH,
+        concurrency: YELP_DETAILS_CONCURRENCY
+      });
+      const simplified = aggregated
+        .map(biz => simplifyBusiness(biz, { details: detailsMap.get(biz.id) }))
+        .filter(Boolean);
       const payload = JSON.stringify(simplified);
 
       await writeCachedResponse(YELP_CACHE_COLLECTION, cacheKey, {

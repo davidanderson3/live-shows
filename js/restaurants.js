@@ -86,6 +86,18 @@ function normalizeId(value) {
   return String(value);
 }
 
+function sanitizeServiceOptions(options) {
+  if (!options || typeof options !== 'object') return null;
+  const sanitized = {};
+  if (typeof options.takeout === 'boolean') {
+    sanitized.takeout = options.takeout;
+  }
+  if (typeof options.sitDown === 'boolean') {
+    sanitized.sitDown = options.sitDown;
+  }
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
 function sanitizeRestaurant(rest) {
   if (!rest || typeof rest !== 'object') return null;
   const allowedKeys = [
@@ -105,10 +117,18 @@ function sanitizeRestaurant(rest) {
     'longitude',
     'url',
     'website',
-    'distance'
+    'distance',
+    'serviceOptions'
   ];
   const sanitized = {};
   allowedKeys.forEach(key => {
+    if (key === 'serviceOptions') {
+      const serviceOptions = sanitizeServiceOptions(rest.serviceOptions);
+      if (serviceOptions) {
+        sanitized.serviceOptions = serviceOptions;
+      }
+      return;
+    }
     if (key in rest) {
       sanitized[key] = rest[key];
     }
@@ -875,6 +895,18 @@ function createAddress(rest) {
   return address;
 }
 
+function describeServiceOptions(options) {
+  if (!options || typeof options !== 'object') return '';
+  const parts = [];
+  if (typeof options.takeout === 'boolean') {
+    parts.push(options.takeout ? 'Takeout' : 'No Takeout');
+  }
+  if (typeof options.sitDown === 'boolean') {
+    parts.push(options.sitDown ? 'Sit-down' : 'No Sit-down');
+  }
+  return parts.join(' • ');
+}
+
 function createMetaList(rest) {
   const meta = document.createElement('ul');
   meta.className = 'restaurant-meta';
@@ -917,6 +949,13 @@ function createMetaList(rest) {
     const distance = document.createElement('li');
     distance.textContent = `Distance: ${distanceText}`;
     meta.appendChild(distance);
+  }
+
+  const serviceDescription = describeServiceOptions(rest.serviceOptions);
+  if (serviceDescription) {
+    const service = document.createElement('li');
+    service.textContent = `Service: ${serviceDescription}`;
+    meta.appendChild(service);
   }
 
   return meta.childNodes.length ? meta : null;
