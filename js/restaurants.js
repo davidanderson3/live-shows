@@ -139,10 +139,14 @@ function writeStoredList(key, list) {
 
 function loadStoredState() {
   savedRestaurants = sortByDistance(
-    dedupeRestaurants(readStoredList(STORAGE_KEYS.saved))
+    filterReviewableRestaurants(
+      dedupeRestaurants(readStoredList(STORAGE_KEYS.saved))
+    )
   );
   favoriteRestaurants = sortByDistance(
-    dedupeRestaurants(readStoredList(STORAGE_KEYS.favorites))
+    filterReviewableRestaurants(
+      dedupeRestaurants(readStoredList(STORAGE_KEYS.favorites))
+    )
   );
   hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
   syncFavoritesWithSaved();
@@ -179,13 +183,17 @@ function isHidden(id) {
 }
 
 function setSavedRestaurants(items) {
-  savedRestaurants = sortByDistance(dedupeRestaurants(items));
+  savedRestaurants = sortByDistance(
+    filterReviewableRestaurants(dedupeRestaurants(items))
+  );
   persistSaved();
   syncFavoritesWithSaved();
 }
 
 function setFavoriteRestaurants(items) {
-  favoriteRestaurants = sortByDistance(dedupeRestaurants(items));
+  favoriteRestaurants = sortByDistance(
+    filterReviewableRestaurants(dedupeRestaurants(items))
+  );
   persistFavorites();
   syncFavoritesWithSaved();
 }
@@ -940,15 +948,25 @@ function getReviewCountValue(rest) {
   return Number.isFinite(raw) && raw >= 0 ? raw : 0;
 }
 
+function hasReviews(rest) {
+  return getReviewCountValue(rest) > 0;
+}
+
+function filterReviewableRestaurants(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items.filter(item => hasReviews(item));
+}
+
 function updateNearbyRestaurants() {
   const list = Array.isArray(rawNearbyRestaurants) ? rawNearbyRestaurants : [];
   const normalized = list.map(normalizeRestaurant).filter(Boolean);
-  if (!normalized.length) {
+  const reviewable = filterReviewableRestaurants(normalized);
+  if (!reviewable.length) {
     nearbyRestaurants = [];
     return;
   }
 
-  const sorted = sortByDistance(normalized);
+  const sorted = sortByDistance(reviewable);
   const highReview = [];
   const fallback = [];
 
