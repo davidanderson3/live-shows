@@ -183,7 +183,7 @@ function setDebugInfo(info) {
     return;
   }
 
-  const { requestUrl, response, responseText, error } = info;
+  const { requestUrl, response, responseText, error, fallbackUrl, primaryError } = info;
   const hasRequest = typeof requestUrl === 'string' && requestUrl.length > 0;
   const hasResponse =
     response && typeof response === 'object' && Object.keys(response).length > 0;
@@ -200,6 +200,24 @@ function setDebugInfo(info) {
 
   if (hasRequest) {
     sections.push(`Request URL:\n${requestUrl}`);
+  }
+
+  if (fallbackUrl && fallbackUrl !== requestUrl) {
+    sections.push(`Fallback URL:\n${fallbackUrl}`);
+  }
+
+  if (primaryError) {
+    const parts = [];
+    if (primaryError.requestUrl && primaryError.requestUrl !== requestUrl) {
+      parts.push(`URL: ${primaryError.requestUrl}`);
+    }
+    if (primaryError.message) {
+      parts.push(`Reason: ${primaryError.message}`);
+    }
+    if (primaryError.status) {
+      parts.push(`Status: ${primaryError.status}`);
+    }
+    sections.push(`Initial attempt failed:\n${parts.join('\n') || String(primaryError)}`);
   }
 
   if (error) {
@@ -390,6 +408,9 @@ function interpretEventbriteError(error) {
     normalizedMessage.includes('not_found') ||
     normalizedMessage.includes('not found')
   ) {
+    if (error?.code === 'NOT_FOUND') {
+      return 'Eventbrite reported that the proxy path does not exist. Ensure your backend exposes the /api/eventbrite route locally or use window.apiBaseUrl to point to a deployed backend with /eventbriteProxy before trying Discover again.';
+    }
     return 'The Live Music proxy could not be reached. Start the local server with “npm start” or set window.apiBaseUrl to your deployed backend before trying Discover again.';
   }
 
@@ -407,21 +428,7 @@ function interpretEventbriteError(error) {
   return 'Unable to load Eventbrite events.';
 }
 
-async function fetchEventbriteEvents({ latitude, longitude, token }) {
-  const params = new URLSearchParams({
-    lat: latitude.toFixed(4),
-    lon: longitude.toFixed(4),
-    radius: String(DEFAULT_RADIUS_MILES),
-    days: String(DEFAULT_LOOKAHEAD_DAYS)
-  });
-
-  if (token) {
-    params.set('token', token);
-  }
-
-  const { endpoint } = resolveEventbriteEndpoint(API_BASE_URL);
-  const url = appendQuery(endpoint, params);
-
+async function performEventbriteRequest(url) {
   const response = await fetch(url, {
     headers: { Accept: 'application/json' }
   });
@@ -438,9 +445,15 @@ async function fetchEventbriteEvents({ latitude, longitude, token }) {
   }
 
   if (!response.ok) {
-    const message = data?.error || `Eventbrite request failed (${response.status})`;
+    const message =
+      typeof data?.error_description === 'string' && data.error_description.trim().length > 0
+        ? data.error_description
+        : typeof data?.error === 'string' && data.error.trim().length > 0
+          ? data.error
+          : `Eventbrite request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
+    error.code = typeof data?.error === 'string' ? data.error : null;
     error.requestUrl = url;
     error.responseText = text;
     throw error;
@@ -452,6 +465,45 @@ async function fetchEventbriteEvents({ latitude, longitude, token }) {
     url,
     responseText: text
   };
+}
+
+async function fetchEventbriteEvents({ latitude, longitude, token }) {
+  const params = new URLSearchParams({
+    lat: latitude.toFixed(4),
+    lon: longitude.toFixed(4),
+    radius: String(DEFAULT_RADIUS_MILES),
+    days: String(DEFAULT_LOOKAHEAD_DAYS)
+  });
+
+  if (token) {
+    params.set('token', token);
+  }
+
+  const { endpoint, isRemote } = resolveEventbriteEndpoint(API_BASE_URL);
+  const url = appendQuery(endpoint, params);
+
+  try {
+    return await performEventbriteRequest(url);
+  } catch (err) {
+    const shouldAttemptFallback =
+      !isRemote &&
+      (!err || err.status === 404 || err.name === 'TypeError' || err.code === 'NOT_FOUND');
+
+    if (!shouldAttemptFallback) {
+      throw err;
+    }
+
+    console.warn(
+      'Primary Eventbrite endpoint failed, retrying with remote proxy',
+      err?.message || err
+    );
+
+    const fallbackUrl = appendQuery(DEFAULT_EVENTBRITE_ENDPOINT, params);
+    const result = await performEventbriteRequest(fallbackUrl);
+    result.fallbackUrl = fallbackUrl;
+    result.primaryError = err;
+    return result;
+  }
 }
 
 async function discoverNearbyShows() {
@@ -486,7 +538,9 @@ async function discoverNearbyShows() {
     setDebugInfo({
       requestUrl: result.url,
       response: result.raw,
-      responseText: result.responseText
+      responseText: result.responseText,
+      fallbackUrl: result.fallbackUrl,
+      primaryError: result.primaryError || null
     });
 
     if (result.events.length > 0) {
