@@ -682,6 +682,19 @@ function appendMeta(list, label, value) {
   list.appendChild(item);
 }
 
+function getReleaseDate(movie) {
+  if (!movie) return '';
+  const raw = String(movie.release_date || movie.first_air_date || '').trim();
+  return raw;
+}
+
+function getReleaseYear(movie) {
+  const releaseDate = getReleaseDate(movie);
+  if (!releaseDate) return '';
+  const [year] = releaseDate.split('-');
+  return (year || '').trim();
+}
+
 function getGenreNames(movie) {
   if (!movie) return [];
   const ids = Array.isArray(movie.genre_ids) ? movie.genre_ids : [];
@@ -1460,9 +1473,10 @@ function renderFeed() {
     info.className = 'movie-info';
 
     const title = (movie.title || movie.name || '').trim();
-    const year = (movie.release_date || '').split('-')[0] || 'Unknown';
+    const releaseDate = getReleaseDate(movie);
+    const year = getReleaseYear(movie);
     const titleEl = document.createElement('h3');
-    titleEl.textContent = `${title} (${year})`;
+    titleEl.textContent = year ? `${title} (${year})` : title;
     info.appendChild(titleEl);
 
     const btnRow = document.createElement('div');
@@ -1480,7 +1494,9 @@ function renderFeed() {
     appendGenresMeta(metaList, movie);
     appendMeta(metaList, 'Average Score', movie.vote_average ?? 'N/A');
     appendMeta(metaList, 'Votes', movie.vote_count ?? 'N/A');
-    appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
+    if (releaseDate) {
+      appendMeta(metaList, 'Release Date', releaseDate);
+    }
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
 
@@ -1572,9 +1588,11 @@ function renderInterestedList() {
     const info = document.createElement('div');
     info.className = 'movie-info';
 
-    const year = (movie.release_date || '').split('-')[0] || 'Unknown';
+    const releaseDate = getReleaseDate(movie);
+    const year = getReleaseYear(movie);
     const titleEl = document.createElement('h3');
-    titleEl.textContent = `${movie.title || 'Untitled'} (${year})`;
+    const titleText = movie.title || 'Untitled';
+    titleEl.textContent = year ? `${titleText} (${year})` : titleText;
     info.appendChild(titleEl);
 
     const interestRow = document.createElement('div');
@@ -1715,9 +1733,11 @@ function renderWatchedList() {
     const info = document.createElement('div');
     info.className = 'movie-info';
 
-    const year = (movie.release_date || '').split('-')[0] || 'Unknown';
+    const releaseDate = getReleaseDate(movie);
+    const year = getReleaseYear(movie);
     const titleEl = document.createElement('h3');
-    titleEl.textContent = `${movie.title || 'Untitled'} (${year})`;
+    const titleText = movie.title || 'Untitled';
+    titleEl.textContent = year ? `${titleText} (${year})` : titleText;
     info.appendChild(titleEl);
 
     const ratingEl = createRatingElement(movie);
@@ -1740,7 +1760,9 @@ function renderWatchedList() {
     metaList.className = 'movie-meta';
     appendMeta(metaList, 'Average Score', movie.vote_average ?? 'N/A');
     appendMeta(metaList, 'Votes', movie.vote_count ?? 'N/A');
-    appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
+    if (releaseDate) {
+      appendMeta(metaList, 'Release Date', releaseDate);
+    }
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
