@@ -31,7 +31,8 @@ const DEFAULT_FEED_FILTER_STATE = Object.freeze({
   minVotes: '',
   startYear: '',
   endYear: '',
-  genreId: ''
+  genreId: '',
+  excludedGenreIds: ''
 });
 
 let feedFilterState = { ...DEFAULT_FEED_FILTER_STATE };
@@ -251,6 +252,27 @@ function sanitizeFeedFilterValue(name, rawValue) {
     return value;
   }
 
+  if (name === 'excludedGenreIds') {
+    const list = Array.isArray(rawValue)
+      ? rawValue
+      : value.split(',');
+    const normalized = list
+      .map(entry => {
+        if (entry == null) return '';
+        const num = Number.parseInt(String(entry).trim(), 10);
+        if (!Number.isFinite(num)) return '';
+        return num.toString();
+      })
+      .filter(Boolean);
+    if (!normalized.length) return '';
+    const uniqueSorted = Array.from(new Set(normalized))
+      .map(entry => Number.parseInt(entry, 10))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b)
+      .map(entry => entry.toString());
+    return uniqueSorted.join(',');
+  }
+
   return value;
 }
 
@@ -266,7 +288,8 @@ function sanitizeFeedFiltersState(state) {
     minVotes: sanitizeFeedFilterValue('minVotes', state.minVotes),
     startYear: sanitizeFeedFilterValue('startYear', state.startYear),
     endYear: sanitizeFeedFilterValue('endYear', state.endYear),
-    genreId: sanitizeFeedFilterValue('genreId', state.genreId)
+    genreId: sanitizeFeedFilterValue('genreId', state.genreId),
+    excludedGenreIds: sanitizeFeedFilterValue('excludedGenreIds', state.excludedGenreIds)
   };
 }
 
@@ -294,8 +317,142 @@ function saveFeedFilters(state) {
   }
 }
 
+function getExcludedGenreIdStrings() {
+  const raw = typeof feedFilterState.excludedGenreIds === 'string'
+    ? feedFilterState.excludedGenreIds
+    : '';
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function getExcludedGenreIdSet() {
+  const strings = getExcludedGenreIdStrings();
+  const numbers = strings
+    .map(value => Number.parseInt(value, 10))
+    .filter(Number.isFinite);
+  return new Set(numbers);
+}
+
+function buildExcludedGenreStateFromValues(values) {
+  const numbers = Array.from(values)
+    .map(value => Number.parseInt(value, 10))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!numbers.length) return '';
+  return numbers.map(value => value.toString()).join(',');
+}
+
 function hasActiveFeedFilters() {
   return Object.values(feedFilterState).some(value => String(value ?? '').trim() !== '');
+}
+
+function updateFeedGenreUI() {
+  const container = domRefs.feedGenre;
+  if (!container) return;
+
+  const currentValue = feedFilterState.genreId ?? '';
+  const includeButtons = container.querySelectorAll('.genre-filter-include-btn');
+  includeButtons.forEach(btn => {
+    const value = btn.dataset.genre ?? '';
+    const isActive = value === currentValue;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  const includeValueEl = container.querySelector('.genre-filter-include-value');
+  if (includeValueEl) {
+    includeValueEl.innerHTML = '';
+
+    if (
+      currentValue &&
+      genreMap &&
+      Object.prototype.hasOwnProperty.call(genreMap, currentValue)
+    ) {
+      const chip = document.createElement('span');
+      chip.className = 'genre-filter-chip';
+
+      const text = document.createElement('span');
+      text.className = 'genre-filter-chip-text';
+      text.textContent = genreMap[currentValue] || 'Selected';
+      chip.appendChild(text);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'genre-filter-chip-remove';
+      removeBtn.setAttribute('aria-label', 'Clear genre filter');
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        setFeedFilter('genreId', '', { sanitize: true, persist: true });
+      });
+      chip.appendChild(removeBtn);
+
+      includeValueEl.appendChild(chip);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'genre-filter-active-empty';
+      span.textContent = 'All genres';
+      includeValueEl.appendChild(span);
+    }
+  }
+
+  const excludedSet = getExcludedGenreIdSet();
+  const excludedStrings = getExcludedGenreIdStrings();
+  const excludeButtons = container.querySelectorAll('.genre-filter-exclude-btn');
+  excludeButtons.forEach(btn => {
+    if (btn.dataset.action === 'clear') {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      return;
+    }
+    const value = btn.dataset.genre ?? '';
+    const numeric = Number.parseInt(value, 10);
+    const isActive = Number.isFinite(numeric) && excludedSet.has(numeric);
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  const excludeValueEl = container.querySelector('.genre-filter-exclude-value');
+  if (excludeValueEl) {
+    excludeValueEl.innerHTML = '';
+
+    if (!excludedStrings.length) {
+      const span = document.createElement('span');
+      span.className = 'genre-filter-active-empty genre-filter-exclude-empty';
+      span.textContent = 'No exclusions';
+      excludeValueEl.appendChild(span);
+    } else {
+      excludedStrings.forEach(value => {
+        const chip = document.createElement('span');
+        chip.className = 'genre-filter-chip genre-filter-chip--exclude';
+
+        const text = document.createElement('span');
+        text.className = 'genre-filter-chip-text';
+        text.textContent = genreMap?.[value] || 'Excluded';
+        chip.appendChild(text);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'genre-filter-chip-remove';
+        const label = genreMap?.[value] || 'genre';
+        removeBtn.setAttribute('aria-label', `Allow ${label}`);
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => {
+          const next = getExcludedGenreIdSet();
+          const numeric = Number.parseInt(value, 10);
+          if (!Number.isFinite(numeric)) return;
+          next.delete(numeric);
+          const nextState = buildExcludedGenreStateFromValues(next);
+          setFeedFilter('excludedGenreIds', nextState, { sanitize: true, persist: true });
+        });
+        chip.appendChild(removeBtn);
+
+        excludeValueEl.appendChild(chip);
+      });
+    }
+  }
 }
 
 function updateFeedFilterInputsFromState() {
@@ -485,6 +642,61 @@ function attachFeedFilterInput(element, name) {
   element._feedFilterChangeHandler = changeHandler;
   element.addEventListener('input', inputHandler);
   element.addEventListener('change', changeHandler);
+}
+
+function attachFeedFilterSelect(element, name) {
+  if (!element) return;
+
+  if (element._feedFilterSelectHandler) {
+    element.removeEventListener('change', element._feedFilterSelectHandler);
+  }
+
+  const handler = event => {
+    setFeedFilter(name, event.target.value, { sanitize: true, persist: true });
+  };
+
+  element._feedFilterSelectHandler = handler;
+  element.addEventListener('change', handler);
+}
+
+function handleFeedGenreButtonClick(event) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (!button) return;
+
+  const value = button.dataset.genre ?? '';
+  const currentValue = feedFilterState.genreId ?? '';
+  const nextValue = currentValue === value ? '' : value;
+
+  if (nextValue === currentValue) return;
+
+  setFeedFilter('genreId', nextValue, { sanitize: true, persist: true });
+}
+
+function handleFeedExcludeGenreButtonClick(event) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (!button) return;
+
+  if (button.dataset.action === 'clear') {
+    if (!getExcludedGenreIdStrings().length) return;
+    setFeedFilter('excludedGenreIds', '', { sanitize: true, persist: true });
+    return;
+  }
+
+  const value = button.dataset.genre ?? '';
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) return;
+
+  const next = getExcludedGenreIdSet();
+  if (next.has(numeric)) {
+    next.delete(numeric);
+  } else {
+    next.add(numeric);
+  }
+
+  const nextState = buildExcludedGenreStateFromValues(next);
+  setFeedFilter('excludedGenreIds', nextState, { sanitize: true, persist: true });
 }
 
 async function loadPreferences() {
@@ -961,6 +1173,8 @@ function applyFeedFilters(movies) {
     ? Number.parseInt(rawGenreId, 10)
     : null;
   const hasGenreFilter = Number.isFinite(genreId);
+  const excludedGenreIds = getExcludedGenreIdSet();
+  const hasExcludedGenres = excludedGenreIds.size > 0;
 
   return movies.filter(movie => {
     if (minRating != null) {
@@ -987,10 +1201,22 @@ function applyFeedFilters(movies) {
       }
     }
 
+    let ids = null;
+    if (hasGenreFilter || hasExcludedGenres) {
+      ids = getMovieGenreIdSet(movie);
+    }
+
     if (hasGenreFilter) {
-      const ids = getMovieGenreIdSet(movie);
       if (!ids.has(genreId)) {
         return false;
+      }
+    }
+
+    if (hasExcludedGenres) {
+      for (const excludedId of excludedGenreIds) {
+        if (ids.has(excludedId)) {
+          return false;
+        }
       }
     }
 
@@ -1934,6 +2160,17 @@ async function fetchDiscoverPageDirect(apiKey, page) {
     language: 'en-US',
     page: String(page)
   });
+  const rawGenreId = feedFilterState.genreId;
+  const genreId = rawGenreId != null && String(rawGenreId).trim() !== ''
+    ? Number.parseInt(rawGenreId, 10)
+    : null;
+  if (Number.isFinite(genreId)) {
+    params.set('with_genres', String(genreId));
+  }
+  const excludedGenres = getExcludedGenreIdStrings();
+  if (excludedGenres.length) {
+    params.set('without_genres', excludedGenres.join(','));
+  }
   const res = await fetch(`https://api.themoviedb.org/3/discover/tv?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch TV shows');
   const data = await res.json();
@@ -1956,12 +2193,19 @@ async function fetchGenreMapDirect(apiKey) {
 }
 
 async function fetchDiscoverPageFromProxy(page) {
+  const rawGenreId = feedFilterState.genreId;
+  const genreId = rawGenreId != null && String(rawGenreId).trim() !== ''
+    ? Number.parseInt(rawGenreId, 10)
+    : null;
+  const excludedGenres = getExcludedGenreIdStrings();
   const data = await callTmdbProxy('discover_tv', {
     sort_by: 'popularity.desc',
     include_adult: 'false',
     include_video: 'false',
     language: 'en-US',
-    page: String(page)
+    page: String(page),
+    ...(Number.isFinite(genreId) ? { with_genres: String(genreId) } : {}),
+    ...(excludedGenres.length ? { without_genres: excludedGenres.join(',') } : {})
   });
   const totalPages = Number(data?.total_pages);
   return {
@@ -2017,7 +2261,8 @@ function buildTmdbDiscoverKey({ usingProxy }) {
     feedFilterState.minVotes ?? '',
     feedFilterState.startYear ?? '',
     feedFilterState.endYear ?? '',
-    feedFilterState.genreId ?? ''
+    feedFilterState.genreId ?? '',
+    feedFilterState.excludedGenreIds ?? ''
   ];
   return parts.map(value => String(value ?? '').trim()).join('|');
 }

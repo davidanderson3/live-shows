@@ -404,7 +404,7 @@ describe('initRestaurantsPanel', () => {
     expect(nearbyContainer?.textContent).toContain('Top Rated');
   });
 
-  it('surfaces fallback restaurants after hiding higher-review picks', async () => {
+  it('does not surface restaurants with fewer than five reviews when higher-review picks are hidden', async () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
@@ -448,16 +448,16 @@ describe('initRestaurantsPanel', () => {
       card?.querySelector('.restaurant-action--danger')?.click();
     };
 
+    const nearbyContainer = document.getElementById('restaurantsNearby');
+    const initialHeadings = Array.from(
+      nearbyContainer.querySelectorAll('h3')
+    ).map(element => element.textContent);
+    expect(initialHeadings).toEqual(['Critics Choice', 'Popular Spot']);
+
     hideByName('Critics Choice');
     hideByName('Popular Spot');
 
-    const nearbyContainer = document.getElementById('restaurantsNearby');
-    const headings = Array.from(
-      nearbyContainer.querySelectorAll('h3')
-    ).map(element => element.textContent);
-
-    expect(headings).toEqual(['Neighborhood Diner', 'Late Night Bites']);
-    expect(nearbyContainer.textContent).not.toContain('No restaurants found.');
+    expect(nearbyContainer.textContent).toContain('No restaurants found.');
   });
 
   it('allows favoriting restaurants and keeps favorites in sync with saved list', async () => {

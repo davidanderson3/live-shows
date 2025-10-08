@@ -30,7 +30,8 @@ const DEFAULT_FEED_FILTER_STATE = Object.freeze({
   minVotes: '',
   startYear: '',
   endYear: '',
-  genreId: ''
+  genreId: '',
+  excludedGenreIds: ''
 });
 
 let feedFilterState = { ...DEFAULT_FEED_FILTER_STATE };
@@ -323,6 +324,27 @@ function sanitizeFeedFilterValue(name, rawValue) {
     return value;
   }
 
+  if (name === 'excludedGenreIds') {
+    const list = Array.isArray(rawValue)
+      ? rawValue
+      : value.split(',');
+    const normalized = list
+      .map(entry => {
+        if (entry == null) return '';
+        const num = Number.parseInt(String(entry).trim(), 10);
+        if (!Number.isFinite(num)) return '';
+        return num.toString();
+      })
+      .filter(Boolean);
+    if (!normalized.length) return '';
+    const uniqueSorted = Array.from(new Set(normalized))
+      .map(entry => Number.parseInt(entry, 10))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b)
+      .map(entry => entry.toString());
+    return uniqueSorted.join(',');
+  }
+
   return value;
 }
 
@@ -338,7 +360,8 @@ function sanitizeFeedFiltersState(state) {
     minVotes: sanitizeFeedFilterValue('minVotes', state.minVotes),
     startYear: sanitizeFeedFilterValue('startYear', state.startYear),
     endYear: sanitizeFeedFilterValue('endYear', state.endYear),
-    genreId: sanitizeFeedFilterValue('genreId', state.genreId)
+    genreId: sanitizeFeedFilterValue('genreId', state.genreId),
+    excludedGenreIds: sanitizeFeedFilterValue('excludedGenreIds', state.excludedGenreIds)
   };
 }
 
@@ -366,6 +389,34 @@ function saveFeedFilters(state) {
   }
 }
 
+function getExcludedGenreIdStrings() {
+  const raw = typeof feedFilterState.excludedGenreIds === 'string'
+    ? feedFilterState.excludedGenreIds
+    : '';
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function getExcludedGenreIdSet() {
+  const strings = getExcludedGenreIdStrings();
+  const numbers = strings
+    .map(value => Number.parseInt(value, 10))
+    .filter(Number.isFinite);
+  return new Set(numbers);
+}
+
+function buildExcludedGenreStateFromValues(values) {
+  const numbers = Array.from(values)
+    .map(value => Number.parseInt(value, 10))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!numbers.length) return '';
+  return numbers.map(value => value.toString()).join(',');
+}
+
 function hasActiveFeedFilters() {
   return Object.values(feedFilterState).some(value => String(value ?? '').trim() !== '');
 }
@@ -375,44 +426,104 @@ function updateFeedGenreUI() {
   if (!container) return;
 
   const currentValue = feedFilterState.genreId ?? '';
-  const buttons = container.querySelectorAll('.genre-filter-btn');
-  buttons.forEach(btn => {
+  const includeButtons = container.querySelectorAll('.genre-filter-include-btn');
+  includeButtons.forEach(btn => {
     const value = btn.dataset.genre ?? '';
     const isActive = value === currentValue;
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
 
-  const activeValueEl = container.querySelector('.genre-filter-active-value');
-  if (!activeValueEl) return;
+  const includeValueEl = container.querySelector('.genre-filter-include-value');
+  if (includeValueEl) {
+    includeValueEl.innerHTML = '';
 
-  activeValueEl.innerHTML = '';
+    if (
+      currentValue &&
+      genreMap &&
+      Object.prototype.hasOwnProperty.call(genreMap, currentValue)
+    ) {
+      const chip = document.createElement('span');
+      chip.className = 'genre-filter-chip';
 
-  if (currentValue && genreMap && Object.prototype.hasOwnProperty.call(genreMap, currentValue)) {
-    const chip = document.createElement('span');
-    chip.className = 'genre-filter-chip';
+      const text = document.createElement('span');
+      text.className = 'genre-filter-chip-text';
+      text.textContent = genreMap[currentValue] || 'Selected';
+      chip.appendChild(text);
 
-    const text = document.createElement('span');
-    text.className = 'genre-filter-chip-text';
-    text.textContent = genreMap[currentValue] || 'Selected';
-    chip.appendChild(text);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'genre-filter-chip-remove';
+      removeBtn.setAttribute('aria-label', 'Clear genre filter');
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        setFeedFilter('genreId', '', { sanitize: true, persist: true });
+      });
+      chip.appendChild(removeBtn);
 
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'genre-filter-chip-remove';
-    removeBtn.setAttribute('aria-label', 'Clear genre filter');
-    removeBtn.textContent = '×';
-    removeBtn.addEventListener('click', () => {
-      setFeedFilter('genreId', '', { sanitize: true, persist: true });
-    });
-    chip.appendChild(removeBtn);
+      includeValueEl.appendChild(chip);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'genre-filter-active-empty';
+      span.textContent = 'All genres';
+      includeValueEl.appendChild(span);
+    }
+  }
 
-    activeValueEl.appendChild(chip);
-  } else {
-    const span = document.createElement('span');
-    span.className = 'genre-filter-active-empty';
-    span.textContent = 'All genres';
-    activeValueEl.appendChild(span);
+  const excludedSet = getExcludedGenreIdSet();
+  const excludedStrings = getExcludedGenreIdStrings();
+  const excludeButtons = container.querySelectorAll('.genre-filter-exclude-btn');
+  excludeButtons.forEach(btn => {
+    if (btn.dataset.action === 'clear') {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      return;
+    }
+    const value = btn.dataset.genre ?? '';
+    const numeric = Number.parseInt(value, 10);
+    const isActive = Number.isFinite(numeric) && excludedSet.has(numeric);
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  const excludeValueEl = container.querySelector('.genre-filter-exclude-value');
+  if (excludeValueEl) {
+    excludeValueEl.innerHTML = '';
+
+    if (!excludedStrings.length) {
+      const span = document.createElement('span');
+      span.className = 'genre-filter-active-empty genre-filter-exclude-empty';
+      span.textContent = 'No exclusions';
+      excludeValueEl.appendChild(span);
+    } else {
+      excludedStrings.forEach(value => {
+        const chip = document.createElement('span');
+        chip.className = 'genre-filter-chip genre-filter-chip--exclude';
+
+        const text = document.createElement('span');
+        text.className = 'genre-filter-chip-text';
+        text.textContent = genreMap?.[value] || 'Excluded';
+        chip.appendChild(text);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'genre-filter-chip-remove';
+        const label = genreMap?.[value] || 'genre';
+        removeBtn.setAttribute('aria-label', `Allow ${label}`);
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => {
+          const next = getExcludedGenreIdSet();
+          const numeric = Number.parseInt(value, 10);
+          if (!Number.isFinite(numeric)) return;
+          next.delete(numeric);
+          const nextState = buildExcludedGenreStateFromValues(next);
+          setFeedFilter('excludedGenreIds', nextState, { sanitize: true, persist: true });
+        });
+        chip.appendChild(removeBtn);
+
+        excludeValueEl.appendChild(chip);
+      });
+    }
   }
 }
 
@@ -471,18 +582,21 @@ function populateFeedGenreOptions() {
   const currentValue = feedFilterState.genreId ?? '';
   const availableIds = new Set(entries.map(([id]) => String(id)));
   const needsReset = currentValue && !availableIds.has(currentValue);
+  const excludedStrings = getExcludedGenreIdStrings();
+  const validExcludedStrings = excludedStrings.filter(value => availableIds.has(value));
+  const needsExcludedReset = excludedStrings.length !== validExcludedStrings.length;
 
   container.innerHTML = '';
 
   const buttonsWrap = document.createElement('div');
-  buttonsWrap.className = 'genre-filter-buttons';
+  buttonsWrap.className = 'genre-filter-buttons genre-filter-buttons--include';
   buttonsWrap.setAttribute('role', 'group');
   buttonsWrap.setAttribute('aria-label', 'Filter movies by genre');
 
   const createButton = (value, label) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'genre-filter-btn';
+    btn.className = 'genre-filter-btn genre-filter-include-btn';
     btn.dataset.genre = value;
     btn.textContent = label;
     btn.addEventListener('click', handleFeedGenreButtonClick);
@@ -497,7 +611,7 @@ function populateFeedGenreOptions() {
   container.appendChild(buttonsWrap);
 
   const activeWrap = document.createElement('div');
-  activeWrap.className = 'genre-filter-active';
+  activeWrap.className = 'genre-filter-active genre-filter-include-active';
 
   const label = document.createElement('span');
   label.className = 'genre-filter-active-label';
@@ -505,15 +619,70 @@ function populateFeedGenreOptions() {
   activeWrap.appendChild(label);
 
   const valueEl = document.createElement('div');
-  valueEl.className = 'genre-filter-active-value';
+  valueEl.className = 'genre-filter-active-value genre-filter-include-value';
   activeWrap.appendChild(valueEl);
 
   container.appendChild(activeWrap);
 
+  const excludeSection = document.createElement('div');
+  excludeSection.className = 'genre-filter-exclude-section';
+
+  const excludeHeading = document.createElement('span');
+  excludeHeading.className = 'genre-filter-exclude-heading';
+  excludeHeading.textContent = 'Exclude genres';
+  excludeSection.appendChild(excludeHeading);
+
+  const excludeButtonsWrap = document.createElement('div');
+  excludeButtonsWrap.className = 'genre-filter-buttons genre-filter-buttons--exclude';
+  excludeButtonsWrap.setAttribute('role', 'group');
+  excludeButtonsWrap.setAttribute('aria-label', 'Exclude genres from movie stream');
+
+  const createExcludeButton = (value, label, { action } = {}) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'genre-filter-btn genre-filter-exclude-btn';
+    if (action) {
+      btn.dataset.action = action;
+    } else {
+      btn.dataset.genre = value;
+    }
+    btn.textContent = label;
+    btn.addEventListener('click', handleFeedExcludeGenreButtonClick);
+    excludeButtonsWrap.appendChild(btn);
+  };
+
+  createExcludeButton('', 'Clear exclusions', { action: 'clear' });
+  entries.forEach(([id, name]) => {
+    const labelText = String(name || 'Unknown');
+    createExcludeButton(String(id), `Exclude ${labelText}`, {});
+  });
+
+  excludeSection.appendChild(excludeButtonsWrap);
+
+  const excludeActiveWrap = document.createElement('div');
+  excludeActiveWrap.className = 'genre-filter-active genre-filter-exclude-active';
+
+  const excludeActiveLabel = document.createElement('span');
+  excludeActiveLabel.className = 'genre-filter-active-label';
+  excludeActiveLabel.textContent = 'Excluded genres:';
+  excludeActiveWrap.appendChild(excludeActiveLabel);
+
+  const excludeActiveValue = document.createElement('div');
+  excludeActiveValue.className = 'genre-filter-active-value genre-filter-exclude-value';
+  excludeActiveWrap.appendChild(excludeActiveValue);
+
+  excludeSection.appendChild(excludeActiveWrap);
+  container.appendChild(excludeSection);
+
   if (needsReset) {
-    feedFilterState = { ...feedFilterState, genreId: '' };
-    saveFeedFilters(feedFilterState);
-    renderFeed();
+    setFeedFilter('genreId', '', { sanitize: false, persist: true });
+  }
+  if (needsExcludedReset) {
+    const sanitized = sanitizeFeedFilterValue(
+      'excludedGenreIds',
+      validExcludedStrings.join(',')
+    );
+    setFeedFilter('excludedGenreIds', sanitized, { sanitize: false, persist: true });
   }
 
   updateFeedGenreUI();
@@ -570,6 +739,32 @@ function handleFeedGenreButtonClick(event) {
   if (nextValue === currentValue) return;
 
   setFeedFilter('genreId', nextValue, { sanitize: true, persist: true });
+}
+
+function handleFeedExcludeGenreButtonClick(event) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (!button) return;
+
+  if (button.dataset.action === 'clear') {
+    if (!getExcludedGenreIdStrings().length) return;
+    setFeedFilter('excludedGenreIds', '', { sanitize: true, persist: true });
+    return;
+  }
+
+  const value = button.dataset.genre ?? '';
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) return;
+
+  const next = getExcludedGenreIdSet();
+  if (next.has(numeric)) {
+    next.delete(numeric);
+  } else {
+    next.add(numeric);
+  }
+
+  const nextState = buildExcludedGenreStateFromValues(next);
+  setFeedFilter('excludedGenreIds', nextState, { sanitize: true, persist: true });
 }
 
 async function loadPreferences() {
@@ -1067,6 +1262,8 @@ function applyFeedFilters(movies) {
     ? Number.parseInt(rawGenreId, 10)
     : null;
   const hasGenreFilter = Number.isFinite(genreId);
+  const excludedGenreIds = getExcludedGenreIdSet();
+  const hasExcludedGenres = excludedGenreIds.size > 0;
 
   return movies.filter(movie => {
     if (minRating != null) {
@@ -1093,10 +1290,22 @@ function applyFeedFilters(movies) {
       }
     }
 
+    let ids = null;
+    if (hasGenreFilter || hasExcludedGenres) {
+      ids = getMovieGenreIdSet(movie);
+    }
+
     if (hasGenreFilter) {
-      const ids = getMovieGenreIdSet(movie);
       if (!ids.has(genreId)) {
         return false;
+      }
+    }
+
+    if (hasExcludedGenres) {
+      for (const excludedId of excludedGenreIds) {
+        if (ids.has(excludedId)) {
+          return false;
+        }
       }
     }
 
@@ -2054,6 +2263,17 @@ async function fetchDiscoverPageDirect(apiKey, page) {
     language: 'en-US',
     page: String(page)
   });
+  const rawGenreId = feedFilterState.genreId;
+  const genreId = rawGenreId != null && String(rawGenreId).trim() !== ''
+    ? Number.parseInt(rawGenreId, 10)
+    : null;
+  if (Number.isFinite(genreId)) {
+    params.set('with_genres', String(genreId));
+  }
+  const excludedGenres = getExcludedGenreIdStrings();
+  if (excludedGenres.length) {
+    params.set('without_genres', excludedGenres.join(','));
+  }
   const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch movies');
   const data = await res.json();
@@ -2076,12 +2296,19 @@ async function fetchGenreMapDirect(apiKey) {
 }
 
 async function fetchDiscoverPageFromProxy(page) {
+  const rawGenreId = feedFilterState.genreId;
+  const genreId = rawGenreId != null && String(rawGenreId).trim() !== ''
+    ? Number.parseInt(rawGenreId, 10)
+    : null;
+  const excludedGenres = getExcludedGenreIdStrings();
   const data = await callTmdbProxy('discover', {
     sort_by: 'popularity.desc',
     include_adult: 'false',
     include_video: 'false',
     language: 'en-US',
-    page: String(page)
+    page: String(page),
+    ...(Number.isFinite(genreId) ? { with_genres: String(genreId) } : {}),
+    ...(excludedGenres.length ? { without_genres: excludedGenres.join(',') } : {})
   });
   const totalPages = Number(data?.total_pages);
   return {
@@ -2137,7 +2364,8 @@ function buildTmdbDiscoverKey({ usingProxy }) {
     feedFilterState.minVotes ?? '',
     feedFilterState.startYear ?? '',
     feedFilterState.endYear ?? '',
-    feedFilterState.genreId ?? ''
+    feedFilterState.genreId ?? '',
+    feedFilterState.excludedGenreIds ?? ''
   ];
   return parts.map(value => String(value ?? '').trim()).join('|');
 }
@@ -2387,6 +2615,8 @@ async function tryFetchCachedMovies({ suppressedIds, minFeedSize }) {
     if (Number.isFinite(startYear)) params.set('startYear', String(startYear));
     if (Number.isFinite(endYear)) params.set('endYear', String(endYear));
     if (Number.isFinite(genreId)) params.set('genreId', String(genreId));
+    const excludedGenres = getExcludedGenreIdStrings();
+    if (excludedGenres.length) params.set('excludeGenres', excludedGenres.join(','));
     if (suppressedIds.size) params.set('excludeIds', Array.from(suppressedIds).join(','));
     params.set('limit', String(Math.max(minFeedSize, MIN_PRIORITY_RESULTS)));
 
