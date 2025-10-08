@@ -1,4 +1,5 @@
 import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
+import { auth, db, getCurrentUser } from './auth.js';
 
 const FALLBACK_API_BASE = DEFAULT_REMOTE_API_BASE;
 
@@ -23,6 +24,8 @@ const STORAGE_KEYS = {
 };
 
 const YELP_API_KEY_STORAGE_KEY = 'restaurants:apiKey';
+const FIRESTORE_COLLECTION = 'restaurants';
+const FIRESTORE_SAVE_DEBOUNCE_MS = 800;
 
 let savedRestaurants = [];
 let favoriteRestaurants = [];
@@ -39,6 +42,11 @@ let userLocation = null;
 let nearbyRadiusIndex = 0;
 let yelpApiKey = readStoredApiKey();
 let needsApiKeyRetry = false;
+let firestoreInitPromise = null;
+let activeFirestoreUserId = null;
+let firestoreSaveTimer = null;
+let lastPersistedFirestoreSignature = null;
+let firestoreReady = false;
 
 const domRefs = {
   resultsRoot: null,
@@ -266,26 +274,41 @@ function isHidden(id) {
   return hiddenRestaurants.some(item => normalizeId(item.id) === normalized);
 }
 
-function setSavedRestaurants(items) {
+function setSavedRestaurants(items, { persistLocal = true, persistRemote = true } = {}) {
   savedRestaurants = sortByDistance(
     filterReviewableRestaurants(dedupeRestaurants(items))
   );
-  persistSaved();
-  syncFavoritesWithSaved();
+  if (persistLocal) {
+    persistSaved();
+  }
+  syncFavoritesWithSaved({ persistRemote });
+  if (persistRemote) {
+    scheduleFirestoreSave();
+  }
 }
 
-function setFavoriteRestaurants(items) {
+function setFavoriteRestaurants(items, { persistLocal = true, persistRemote = true } = {}) {
   favoriteRestaurants = sortByDistance(
     filterReviewableRestaurants(dedupeRestaurants(items))
   );
-  persistFavorites();
-  syncFavoritesWithSaved();
+  if (persistLocal) {
+    persistFavorites();
+  }
+  if (persistRemote) {
+    scheduleFirestoreSave();
+  }
+  syncFavoritesWithSaved({ persistRemote });
 }
 
-function setHiddenRestaurants(items) {
+function setHiddenRestaurants(items, { persistLocal = true, persistRemote = true } = {}) {
   hiddenRestaurants = dedupeRestaurants(items);
-  persistHidden();
-  syncFavoritesWithSaved();
+  if (persistLocal) {
+    persistHidden();
+  }
+  if (persistRemote) {
+    scheduleFirestoreSave();
+  }
+  syncFavoritesWithSaved({ persistRemote });
 }
 
 function updateSaveButtonState(button, restId) {
@@ -304,7 +327,7 @@ function updateFavoriteButtonState(button, restId) {
   button.setAttribute('aria-pressed', favorite ? 'true' : 'false');
 }
 
-function syncFavoritesWithSaved() {
+function syncFavoritesWithSaved({ persistRemote = true } = {}) {
   const savedIds = new Set(
     savedRestaurants
       .map(item => normalizeId(item.id))
@@ -317,7 +340,183 @@ function syncFavoritesWithSaved() {
   if (filtered.length !== favoriteRestaurants.length) {
     favoriteRestaurants = filtered;
     persistFavorites();
+    if (persistRemote) {
+      scheduleFirestoreSave();
+    }
   }
+}
+
+function isFirestoreSupported() {
+  return Boolean(db && typeof db.collection === 'function');
+}
+
+function hasFirestoreUser() {
+  return Boolean(activeFirestoreUserId);
+}
+
+function buildFirestorePayload() {
+  const normalizeList = list =>
+    dedupeRestaurants(list)
+      .map(item => sanitizeRestaurant(item))
+      .filter(Boolean);
+
+  return {
+    saved: normalizeList(savedRestaurants),
+    favorites: normalizeList(favoriteRestaurants),
+    hidden: normalizeList(hiddenRestaurants),
+    updatedAt: Date.now()
+  };
+}
+
+function computeRestaurantSignature(item) {
+  if (!item || typeof item !== 'object') return '';
+  const normalizedId = normalizeId(item.id);
+  const keys = [
+    normalizedId,
+    item.name,
+    item.address,
+    item.city,
+    item.state,
+    item.zip,
+    item.latitude,
+    item.longitude,
+    item.distance
+  ];
+  return keys
+    .map(value => {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'number') return value.toFixed ? value.toFixed(6) : String(value);
+      return String(value).trim().toLowerCase();
+    })
+    .join('|');
+}
+
+function computeFirestoreSignature(payload) {
+  if (!payload) return '';
+  const sections = [];
+  const appendList = list => {
+    if (!Array.isArray(list)) return;
+    list.forEach(item => sections.push(computeRestaurantSignature(item)));
+  };
+  appendList(payload.saved);
+  sections.push('__favorites__');
+  appendList(payload.favorites);
+  sections.push('__hidden__');
+  appendList(payload.hidden);
+  return sections.join('||');
+}
+
+function isFirestoreReady() {
+  return firestoreReady && isFirestoreSupported() && hasFirestoreUser();
+}
+
+function scheduleFirestoreSave() {
+  if (!isFirestoreReady()) return;
+  if (firestoreSaveTimer) {
+    clearTimeout(firestoreSaveTimer);
+  }
+  firestoreSaveTimer = setTimeout(() => {
+    firestoreSaveTimer = null;
+    persistRestaurantsToFirestore().catch(err => {
+      console.error('Failed to persist restaurants to Firestore', err);
+    });
+  }, FIRESTORE_SAVE_DEBOUNCE_MS);
+}
+
+async function persistRestaurantsToFirestore() {
+  if (!isFirestoreReady()) return;
+  try {
+    const payload = buildFirestorePayload();
+    const signature = computeFirestoreSignature(payload);
+    if (signature && signature === lastPersistedFirestoreSignature) {
+      return;
+    }
+    await db
+      .collection(FIRESTORE_COLLECTION)
+      .doc(activeFirestoreUserId)
+      .set(payload, { merge: true });
+    lastPersistedFirestoreSignature = signature;
+  } catch (err) {
+    console.error('Failed to save restaurants to Firestore', err);
+  }
+}
+
+function resetFirestoreState() {
+  activeFirestoreUserId = null;
+  firestoreReady = false;
+  lastPersistedFirestoreSignature = null;
+  if (firestoreSaveTimer) {
+    clearTimeout(firestoreSaveTimer);
+    firestoreSaveTimer = null;
+  }
+}
+
+function safeRenderAll() {
+  if (initialized) {
+    renderAll();
+  }
+}
+
+async function loadFirestoreStateForUser(user) {
+  if (!isFirestoreSupported() || !user?.uid) return;
+  try {
+    const docRef = db.collection(FIRESTORE_COLLECTION).doc(user.uid);
+    const snapshot = await docRef.get();
+    if (snapshot && snapshot.exists) {
+      const data = snapshot.data() || {};
+      const saved = Array.isArray(data.saved) ? data.saved : [];
+      const favorites = Array.isArray(data.favorites) ? data.favorites : [];
+      const hidden = Array.isArray(data.hidden) ? data.hidden : [];
+      setSavedRestaurants(saved, { persistRemote: false });
+      setFavoriteRestaurants(favorites, { persistRemote: false });
+      setHiddenRestaurants(hidden, { persistRemote: false });
+    }
+    lastPersistedFirestoreSignature = computeFirestoreSignature(buildFirestorePayload());
+  } catch (err) {
+    console.error('Failed to load restaurants from Firestore', err);
+    lastPersistedFirestoreSignature = null;
+  }
+}
+
+async function activateFirestoreForUser(user) {
+  if (!isFirestoreSupported()) {
+    resetFirestoreState();
+    return;
+  }
+  if (!user || !user.uid) {
+    const previousSignature = lastPersistedFirestoreSignature;
+    resetFirestoreState();
+    if (previousSignature !== null) {
+      loadStoredState();
+    }
+    return;
+  }
+
+  activeFirestoreUserId = user.uid;
+  firestoreReady = false;
+  await loadFirestoreStateForUser(user);
+  firestoreReady = true;
+}
+
+async function ensureFirestoreInitialized() {
+  if (firestoreInitPromise) return firestoreInitPromise;
+  if (!auth || typeof auth.onAuthStateChanged !== 'function') {
+    firestoreInitPromise = Promise.resolve();
+    return firestoreInitPromise;
+  }
+
+  firestoreInitPromise = (async () => {
+    const initialUser = typeof getCurrentUser === 'function' ? getCurrentUser() : auth.currentUser;
+    if (initialUser && initialUser.uid) {
+      await activateFirestoreForUser(initialUser);
+    }
+    auth.onAuthStateChanged(async user => {
+      await activateFirestoreForUser(user);
+      safeRenderAll();
+    });
+  })();
+
+  return firestoreInitPromise;
 }
 
 function toggleSaved(rest) {
@@ -1569,6 +1768,7 @@ export async function initRestaurantsPanel() {
   domRefs.apiKeyInput = document.getElementById('yelpApiKeyInput');
 
   loadStoredState();
+  await ensureFirestoreInitialized();
   syncApiKeyInput();
 
   if (domRefs.apiKeyInput) {
@@ -1616,22 +1816,22 @@ if (typeof window !== 'undefined') {
   loadStoredState();
   window.addEventListener('storage', event => {
     if (event.key === STORAGE_KEYS.saved) {
-      savedRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.saved));
-      savedRestaurants = sortByDistance(savedRestaurants);
-      syncFavoritesWithSaved();
+      const storedSaved = readStoredList(STORAGE_KEYS.saved);
+      setSavedRestaurants(storedSaved, { persistLocal: false, persistRemote: false });
       renderSavedSection();
       renderFavoritesSection();
       updateMapForCurrentView();
     } else if (event.key === STORAGE_KEYS.favorites) {
-      favoriteRestaurants = sortByDistance(
-        dedupeRestaurants(readStoredList(STORAGE_KEYS.favorites))
-      );
-      syncFavoritesWithSaved();
+      const storedFavorites = readStoredList(STORAGE_KEYS.favorites);
+      setFavoriteRestaurants(storedFavorites, {
+        persistLocal: false,
+        persistRemote: false
+      });
       renderFavoritesSection();
       updateMapForCurrentView();
     } else if (event.key === STORAGE_KEYS.hidden) {
-      hiddenRestaurants = dedupeRestaurants(readStoredList(STORAGE_KEYS.hidden));
-      syncFavoritesWithSaved();
+      const storedHidden = readStoredList(STORAGE_KEYS.hidden);
+      setHiddenRestaurants(storedHidden, { persistLocal: false, persistRemote: false });
       renderHiddenSection();
       renderNearbySection();
       renderSavedSection();

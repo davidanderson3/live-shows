@@ -1,6 +1,65 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
+const authListeners = [];
+let mockCurrentUser = null;
+let mockDocExists = false;
+let mockDocData = null;
+
+const docSetSpy = vi.fn(() => Promise.resolve());
+const docGetSpy = vi.fn(() =>
+  Promise.resolve({
+    exists: mockDocExists,
+    data: () => mockDocData || {}
+  })
+);
+const docFn = vi.fn(() => ({ get: docGetSpy, set: docSetSpy }));
+const collectionFn = vi.fn(() => ({ doc: docFn }));
+
+vi.mock('../js/auth.js', () => ({
+  __esModule: true,
+  get currentUser() {
+    return mockCurrentUser;
+  },
+  auth: {
+    onAuthStateChanged: callback => {
+      authListeners.push(callback);
+      return () => {
+        const index = authListeners.indexOf(callback);
+        if (index >= 0) authListeners.splice(index, 1);
+      };
+    },
+    get currentUser() {
+      return mockCurrentUser;
+    }
+  },
+  db: {
+    collection: collectionFn
+  },
+  getCurrentUser: () => mockCurrentUser,
+  awaitAuthUser: () => Promise.resolve(mockCurrentUser),
+  __setUser: user => {
+    mockCurrentUser = user;
+    authListeners.forEach(listener => listener(user));
+  }
+}));
+
+function resetAuthState() {
+  mockCurrentUser = null;
+  mockDocExists = false;
+  mockDocData = null;
+  authListeners.length = 0;
+  docSetSpy.mockReset();
+  docGetSpy.mockReset();
+  docGetSpy.mockImplementation(() =>
+    Promise.resolve({ exists: mockDocExists, data: () => mockDocData || {} })
+  );
+  docFn.mockReset();
+  docFn.mockImplementation(() => ({ get: docGetSpy, set: docSetSpy }));
+  collectionFn.mockReset();
+  collectionFn.mockImplementation(() => ({ doc: docFn }));
+}
+
 function setupDom() {
   return new JSDOM(
     `
@@ -28,11 +87,13 @@ describe('initRestaurantsPanel', () => {
   let initRestaurantsPanel;
 
   beforeEach(async () => {
+    resetAuthState();
     vi.resetModules();
     ({ initRestaurantsPanel } = await import('../js/restaurants.js'));
   });
 
   afterEach(() => {
+    resetAuthState();
     vi.restoreAllMocks();
     delete global.fetch;
     delete global.window;
@@ -716,6 +777,132 @@ describe('initRestaurantsPanel', () => {
     expect(savedContainer?.textContent).toContain('No saved restaurants yet.');
     const nearbyContainer = document.getElementById('restaurantsNearby');
     expect(nearbyContainer?.textContent).toContain('Top Rated');
+  });
+
+  it('loads saved restaurants from Firestore when a user is signed in', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    mockDocExists = true;
+    mockDocData = {
+      saved: [
+        { id: 'remote-1', name: 'Remote Cafe', rating: 4.7, reviewCount: 56 },
+        { id: 'remote-2', name: 'Saved Bistro', rating: 4.4, reviewCount: 22 }
+      ],
+      favorites: [
+        { id: 'remote-1', name: 'Remote Cafe', rating: 4.7, reviewCount: 56 }
+      ],
+      hidden: [
+        { id: 'hidden-1', name: 'Hidden Diner', rating: 4.2, reviewCount: 30 }
+      ]
+    };
+
+    const auth = await import('../js/auth.js');
+    auth.__setUser({ uid: 'user-abc' });
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+
+    await initRestaurantsPanel();
+
+    const savedContainer = document.getElementById('restaurantsSaved');
+    const favoritesContainer = document.getElementById('restaurantsFavorites');
+    const hiddenSection = document.getElementById('restaurantsHiddenSection');
+
+    expect(savedContainer?.textContent).toContain('Saved Bistro');
+    expect(favoritesContainer?.textContent).toContain('Remote Cafe');
+    expect(hiddenSection?.textContent).toContain('Hidden Diner');
+
+    expect(collectionFn).toHaveBeenCalledWith('restaurants');
+    expect(docFn).toHaveBeenCalledWith('user-abc');
+    expect(docGetSpy).toHaveBeenCalled();
+    expect(docSetSpy).not.toHaveBeenCalled();
+  });
+
+  it('persists saved restaurants to Firestore for signed-in users', async () => {
+    vi.useFakeTimers();
+    try {
+      const dom = setupDom();
+      global.window = dom.window;
+      global.document = dom.window.document;
+      window.localStorage.clear();
+
+      mockDocExists = true;
+      mockDocData = { saved: [], favorites: [], hidden: [] };
+
+      const auth = await import('../js/auth.js');
+      auth.__setUser({ uid: 'user-save' });
+
+      const geoMock = {
+        getCurrentPosition: vi.fn(success => {
+          success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+        })
+      };
+      Object.defineProperty(window.navigator, 'geolocation', {
+        configurable: true,
+        value: geoMock
+      });
+      global.navigator = window.navigator;
+
+      const sampleData = [
+        { id: 'one', name: 'Save Spot', rating: 4.6, reviewCount: 90, distance: 1000 }
+      ];
+
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ address: { city: 'Austin' } })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(sampleData)
+        })
+        .mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+
+      await initRestaurantsPanel();
+
+      const saveButton = document.querySelector('#restaurantsNearby .restaurant-action--secondary');
+      expect(saveButton).toBeTruthy();
+      saveButton?.dispatchEvent(new dom.window.MouseEvent('click'));
+
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      expect(docSetSpy).toHaveBeenCalled();
+      const payload = docSetSpy.mock.calls[docSetSpy.mock.calls.length - 1][0];
+      expect(payload.saved).toEqual([
+        expect.objectContaining({ id: 'one', name: 'Save Spot' })
+      ]);
+      expect(payload.favorites).toEqual([]);
+      expect(payload.hidden).toEqual([]);
+      expect(collectionFn).toHaveBeenCalledWith('restaurants');
+      expect(docFn).toHaveBeenCalledWith('user-save');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('moves hidden restaurants to the hidden section', async () => {
