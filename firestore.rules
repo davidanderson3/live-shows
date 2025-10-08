@@ -73,6 +73,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 10) TV show preferences stored at /tvPreferences/{uid}
+    match /tvPreferences/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Everything else locked down
     match /{document=**} {
       allow read, write: if false;
