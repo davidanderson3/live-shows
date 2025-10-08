@@ -43,6 +43,10 @@ describe('initShowsPanel (Eventbrite)', () => {
       <input id="eventbriteApiToken" />
       <button id="eventbriteDiscoverBtn">Discover</button>
       <div id="eventbriteStatus"></div>
+      <details id="eventbriteDebug" hidden>
+        <summary>Latest API response</summary>
+        <pre id="eventbriteDebugOutput"></pre>
+      </details>
       <div id="eventbriteList"></div>
     `, { url: 'http://localhost/' });
 
@@ -126,6 +130,12 @@ describe('initShowsPanel (Eventbrite)', () => {
 
     const status = document.getElementById('eventbriteStatus');
     expect(status.textContent).toContain('Found 1 upcoming event');
+
+    const debugContainer = document.getElementById('eventbriteDebug');
+    const debugOutput = document.getElementById('eventbriteDebugOutput');
+    expect(debugContainer.hidden).toBe(false);
+    expect(debugOutput.textContent).toContain('Request URL:');
+    expect(debugOutput.textContent).toContain('Live Show');
   });
 
   it('shows a helpful message when geolocation fails', async () => {
@@ -143,5 +153,6 @@ describe('initShowsPanel (Eventbrite)', () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(document.getElementById('eventbriteStatus').textContent).toContain('Location access was denied');
+    expect(document.getElementById('eventbriteDebug').hidden).toBe(true);
   });
 });
