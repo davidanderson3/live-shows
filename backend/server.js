@@ -186,7 +186,15 @@ const plaidClient = (() => {
 })();
 
 // Serve static files (like index.html, style.css, script.js)
-app.use(express.static(path.resolve(__dirname, '../')));
+// Allow API routes (like /api/eventbrite) to continue past the static middleware
+// when no matching asset is found. Express 5 changes the default `fallthrough`
+// behavior, so we explicitly enable it to avoid returning a 404 before our API
+// handlers get a chance to run.
+app.use(
+  express.static(path.resolve(__dirname, '../'), {
+    fallthrough: true
+  })
+);
 
 app.post('/contact', async (req, res) => {
   const { name, from, message } = req.body || {};
