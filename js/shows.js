@@ -80,6 +80,21 @@ function resolveEventbriteEndpoint(baseUrl) {
   const matchesWindowOrigin =
     hasWindow && locationOrigin && baseOrigin === locationOrigin;
 
+  const hasWindowPort =
+    hasWindow &&
+    typeof window.location?.port === 'string' &&
+    window.location.port !== '';
+
+  if (
+    matchesWindowOrigin &&
+    trimmedBase &&
+    trimmedBase === locationOrigin &&
+    hasWindowPort
+  ) {
+    const endpoint = `${trimmedBase}/api/eventbrite`;
+    return { endpoint, isRemote: isRemoteEndpoint(endpoint) };
+  }
+
   if (!trimmedBase || (matchesWindowOrigin && !hasExplicitApiBaseOverride)) {
     return { endpoint: DEFAULT_EVENTBRITE_ENDPOINT, isRemote: true };
   }
