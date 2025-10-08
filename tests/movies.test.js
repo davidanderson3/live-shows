@@ -934,6 +934,61 @@ describe('initMoviesPanel', () => {
     expect(document.querySelector('#movieList').textContent).toContain('Classic Film');
   });
 
+  it('prompts for a rating when marking a movie as watched', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const promptSpy = vi.fn(() => '8.5');
+    window.prompt = promptSpy;
+
+    const page = {
+      results: [
+        {
+          id: 12,
+          title: 'Prompt Test',
+          release_date: '2020-05-05',
+          vote_average: 7.8,
+          vote_count: 345,
+          overview: 'A movie to test prompts.',
+          genre_ids: [35]
+        }
+      ]
+    };
+    const empty = { results: [] };
+    const credits = {
+      cast: [{ name: 'Comedic Star' }],
+      crew: [{ job: 'Director', name: 'Funny Director' }]
+    };
+    const genres = { genres: [{ id: 35, name: 'Comedy' }] };
+
+    configureFetchResponses([
+      { results: [] },
+      page,
+      empty,
+      credits,
+      genres
+    ]);
+
+    await initMoviesPanel();
+
+    const watchedBtn = Array.from(document.querySelectorAll('#movieList li button')).find(
+      b => b.textContent === 'Watched Already'
+    );
+    watchedBtn?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    const promptMessage = promptSpy.mock.calls[0][0] || '';
+    expect(promptMessage).toContain('Rate "Prompt Test"');
+
+    const personalRatingInput = document.querySelector(
+      '#watchedMoviesList .movie-personal-rating input'
+    );
+    expect(personalRatingInput?.value).toBe('8.5');
+  });
+
   it('sorts watched movies by rating when selected', async () => {
     const dom = buildDom();
     attachWindow(dom);

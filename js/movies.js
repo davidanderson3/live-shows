@@ -1246,6 +1246,7 @@ async function setStatus(movie, status, options = {}) {
   const next = { ...currentPrefs };
   const snapshot = summarizeMovie(movie);
   const entry = next[id] ? { ...next[id] } : {};
+  const skipRatingPrompt = Boolean(options.skipRatingPrompt);
   entry.status = status;
   entry.updatedAt = Date.now();
   if (status === 'interested') {
@@ -1264,9 +1265,41 @@ async function setStatus(movie, status, options = {}) {
   await savePreferences(next);
   pruneSuppressedMovies();
   refreshUI();
+  if (status === 'watched' && !skipRatingPrompt) {
+    await promptForUserRating(movie);
+  }
   if (!getFeedMovies(currentMovies).length) {
     requestAdditionalMovies();
   }
+}
+
+async function promptForUserRating(movie) {
+  if (!movie || movie.id == null) return;
+  const hasWindow = typeof window !== 'undefined' && window;
+  const promptFn = hasWindow && typeof window.prompt === 'function' ? window.prompt : null;
+  if (!promptFn) return;
+
+  const title = (movie.title || movie.name || '').trim() || 'this title';
+  const message = `Rate "${title}" on a scale of 0-10 (leave blank to skip).`;
+
+  let response;
+  try {
+    response = promptFn(message, '');
+  } catch (err) {
+    console.warn('Failed to prompt for movie rating', movie.id, err);
+    return;
+  }
+
+  if (response == null) return;
+  if (typeof response !== 'string') return;
+
+  const trimmed = response.trim();
+  if (!trimmed) return;
+
+  const value = Number.parseFloat(trimmed);
+  if (Number.isNaN(value)) return;
+
+  await setUserRating(movie.id, value);
 }
 
 async function setUserRating(movieId, rating) {
