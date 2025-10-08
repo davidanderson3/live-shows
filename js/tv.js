@@ -564,52 +564,6 @@ function setFeedFilter(name, rawValue, { sanitize = false, persist = true } = {}
   }
 }
 
-function updateFeedGenreUI() {
-  const container = domRefs.feedGenre;
-  if (!container) return;
-
-  const currentValue = feedFilterState.genreId ?? '';
-  const buttons = container.querySelectorAll('.genre-filter-btn');
-  buttons.forEach(btn => {
-    const value = btn.dataset.genre ?? '';
-    const isActive = value === currentValue;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-  });
-
-  const activeValueEl = container.querySelector('.genre-filter-active-value');
-  if (!activeValueEl) return;
-
-  activeValueEl.innerHTML = '';
-
-  if (currentValue && genreMap && Object.prototype.hasOwnProperty.call(genreMap, currentValue)) {
-    const chip = document.createElement('span');
-    chip.className = 'genre-filter-chip';
-
-    const text = document.createElement('span');
-    text.className = 'genre-filter-chip-text';
-    text.textContent = genreMap[currentValue] || 'Selected';
-    chip.appendChild(text);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'genre-filter-chip-remove';
-    removeBtn.setAttribute('aria-label', 'Clear genre filter');
-    removeBtn.textContent = '×';
-    removeBtn.addEventListener('click', () => {
-      setFeedFilter('genreId', '', { sanitize: true, persist: true });
-    });
-    chip.appendChild(removeBtn);
-
-    activeValueEl.appendChild(chip);
-  } else {
-    const span = document.createElement('span');
-    span.className = 'genre-filter-active-empty';
-    span.textContent = 'All genres';
-    activeValueEl.appendChild(span);
-  }
-}
-
 function populateFeedGenreOptions() {
   const container = domRefs.feedGenre;
   if (!container) return;
@@ -623,18 +577,21 @@ function populateFeedGenreOptions() {
   const currentValue = feedFilterState.genreId ?? '';
   const availableIds = new Set(entries.map(([id]) => String(id)));
   const needsReset = currentValue && !availableIds.has(currentValue);
+  const excludedStrings = getExcludedGenreIdStrings();
+  const validExcludedStrings = excludedStrings.filter(value => availableIds.has(value));
+  const needsExcludedReset = excludedStrings.length !== validExcludedStrings.length;
 
   container.innerHTML = '';
 
   const buttonsWrap = document.createElement('div');
-  buttonsWrap.className = 'genre-filter-buttons';
+  buttonsWrap.className = 'genre-filter-buttons genre-filter-buttons--include';
   buttonsWrap.setAttribute('role', 'group');
   buttonsWrap.setAttribute('aria-label', 'Filter TV shows by genre');
 
   const createButton = (value, label) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'genre-filter-btn';
+    btn.className = 'genre-filter-btn genre-filter-include-btn';
     btn.dataset.genre = value;
     btn.textContent = label;
     btn.addEventListener('click', handleFeedGenreButtonClick);
@@ -649,7 +606,7 @@ function populateFeedGenreOptions() {
   container.appendChild(buttonsWrap);
 
   const activeWrap = document.createElement('div');
-  activeWrap.className = 'genre-filter-active';
+  activeWrap.className = 'genre-filter-active genre-filter-include-active';
 
   const label = document.createElement('span');
   label.className = 'genre-filter-active-label';
@@ -657,15 +614,70 @@ function populateFeedGenreOptions() {
   activeWrap.appendChild(label);
 
   const valueEl = document.createElement('div');
-  valueEl.className = 'genre-filter-active-value';
+  valueEl.className = 'genre-filter-active-value genre-filter-include-value';
   activeWrap.appendChild(valueEl);
 
   container.appendChild(activeWrap);
 
+  const excludeSection = document.createElement('div');
+  excludeSection.className = 'genre-filter-exclude-section';
+
+  const excludeHeading = document.createElement('span');
+  excludeHeading.className = 'genre-filter-exclude-heading';
+  excludeHeading.textContent = 'Exclude genres';
+  excludeSection.appendChild(excludeHeading);
+
+  const excludeButtonsWrap = document.createElement('div');
+  excludeButtonsWrap.className = 'genre-filter-buttons genre-filter-buttons--exclude';
+  excludeButtonsWrap.setAttribute('role', 'group');
+  excludeButtonsWrap.setAttribute('aria-label', 'Exclude genres from TV show stream');
+
+  const createExcludeButton = (value, label, { action } = {}) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'genre-filter-btn genre-filter-exclude-btn';
+    if (action) {
+      btn.dataset.action = action;
+    } else {
+      btn.dataset.genre = value;
+    }
+    btn.textContent = label;
+    btn.addEventListener('click', handleFeedExcludeGenreButtonClick);
+    excludeButtonsWrap.appendChild(btn);
+  };
+
+  createExcludeButton('', 'Clear exclusions', { action: 'clear' });
+  entries.forEach(([id, name]) => {
+    const labelText = String(name || 'Unknown');
+    createExcludeButton(String(id), `Exclude ${labelText}`, {});
+  });
+
+  excludeSection.appendChild(excludeButtonsWrap);
+
+  const excludeActiveWrap = document.createElement('div');
+  excludeActiveWrap.className = 'genre-filter-active genre-filter-exclude-active';
+
+  const excludeActiveLabel = document.createElement('span');
+  excludeActiveLabel.className = 'genre-filter-active-label';
+  excludeActiveLabel.textContent = 'Excluded genres:';
+  excludeActiveWrap.appendChild(excludeActiveLabel);
+
+  const excludeActiveValue = document.createElement('div');
+  excludeActiveValue.className = 'genre-filter-active-value genre-filter-exclude-value';
+  excludeActiveWrap.appendChild(excludeActiveValue);
+
+  excludeSection.appendChild(excludeActiveWrap);
+  container.appendChild(excludeSection);
+
   if (needsReset) {
-    feedFilterState = { ...feedFilterState, genreId: '' };
-    saveFeedFilters(feedFilterState);
-    renderFeed();
+    setFeedFilter('genreId', '', { sanitize: false, persist: true });
+  }
+  if (needsExcludedReset) {
+    const sanitized = sanitizeFeedFilterValue(
+      'excludedGenreIds',
+      validExcludedStrings.join(',')
+    );
+    setFeedFilter('excludedGenreIds', sanitized, { sanitize: false, persist: true });
   }
 
   updateFeedGenreUI();
