@@ -561,6 +561,7 @@ app.get('/api/eventbrite', async (req, res) => {
     'location.longitude': String(longitude),
     expand: 'venue',
     sort_by: 'date',
+    categories: '103',
     'start_date.range_start': `${normalizedStart}T00:00:00Z`,
     'start_date.range_end': `${endDate}T23:59:59Z`
   });
