@@ -944,7 +944,8 @@ function updateNearbyRestaurants() {
   const list = Array.isArray(rawNearbyRestaurants) ? rawNearbyRestaurants : [];
   const normalized = list.map(normalizeRestaurant).filter(Boolean);
   const filtered = normalized.filter(rest => getReviewCountValue(rest) >= 5);
-  nearbyRestaurants = sortByDistance(filtered);
+  const prioritized = filtered.length ? filtered : normalized;
+  nearbyRestaurants = sortByDistance(prioritized);
 }
 
 function renderRestaurantsList(container, items, emptyMessage) {
