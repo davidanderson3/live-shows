@@ -2682,6 +2682,42 @@ h2 {
   background: #f9f9f9;
 }
 
+.watched-columns {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.watched-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.watched-column h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.watched-column ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.watched-column ul > .movie-card {
+  margin-bottom: 0;
+}
+
+.watched-empty {
+  margin: 0;
+  color: #555;
+}
+
 .movie-card img {
   width: 100px;
   border-radius: 4px;

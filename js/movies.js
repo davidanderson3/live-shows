@@ -2114,8 +2114,23 @@ function renderWatchedList() {
     return;
   }
 
-  const ul = document.createElement('ul');
+  const rated = [];
+  const unrated = [];
+
+  const hasUserRating = pref => {
+    if (pref.userRating == null || pref.userRating === '') return false;
+    return clampUserRating(Number(pref.userRating)) != null;
+  };
+
   sorted.forEach(pref => {
+    if (hasUserRating(pref)) {
+      rated.push(pref);
+    } else {
+      unrated.push(pref);
+    }
+  });
+
+  const createCard = pref => {
     const movie = pref.movie;
     const li = document.createElement('li');
     li.className = 'movie-card';
@@ -2169,11 +2184,40 @@ function renderWatchedList() {
     info.appendChild(controls);
 
     li.appendChild(info);
-    ul.appendChild(li);
-  });
+    return li;
+  };
+
+  const createColumn = (title, prefs, emptyMessage) => {
+    const column = document.createElement('section');
+    column.className = 'watched-column';
+
+    const heading = document.createElement('h4');
+    heading.textContent = title;
+    column.appendChild(heading);
+
+    if (!prefs.length) {
+      const empty = document.createElement('p');
+      empty.className = 'watched-empty';
+      empty.innerHTML = `<em>${emptyMessage}</em>`;
+      column.appendChild(empty);
+      return column;
+    }
+
+    const columnList = document.createElement('ul');
+    prefs.forEach(pref => {
+      columnList.appendChild(createCard(pref));
+    });
+    column.appendChild(columnList);
+    return column;
+  };
+
+  const container = document.createElement('div');
+  container.className = 'watched-columns';
+  container.appendChild(createColumn('Rated', rated, 'No rated movies yet.'));
+  container.appendChild(createColumn('Unrated', unrated, 'No unrated movies yet.'));
 
   listEl.innerHTML = '';
-  listEl.appendChild(ul);
+  listEl.appendChild(container);
 }
 
 function refreshUI() {
