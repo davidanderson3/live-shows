@@ -331,6 +331,14 @@ function getTmdbApiKey() {
   return null;
 }
 
+function getTmdbProxyEndpoint() {
+  const fromEnv = process.env.TMDB_PROXY_ENDPOINT;
+  if (fromEnv) return fromEnv;
+  const fromConfig = functions.config()?.tmdb?.proxy_endpoint;
+  if (fromConfig) return fromConfig;
+  return '';
+}
+
 function resolveSingle(value) {
   if (Array.isArray(value)) {
     return value[0];
@@ -438,6 +446,44 @@ exports.tmdbProxy = functions
       console.error('TMDB proxy failed', err);
       res.status(500).json({ error: 'tmdb_proxy_failed' });
     }
+  });
+
+exports.tmdbConfig = functions
+  .region(DEFAULT_REGION)
+  .https.onRequest((req, res) => {
+    withCors(res);
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+
+    if (req.method !== 'GET') {
+      res.status(405).json({ error: 'method_not_allowed' });
+      return;
+    }
+
+    const apiKey = getTmdbApiKey();
+    const proxyEndpoint = getTmdbProxyEndpoint();
+
+    if (!apiKey && !proxyEndpoint) {
+      res.status(404).json({ error: 'tmdb_config_unavailable' });
+      return;
+    }
+
+    const payload = {
+      hasKey: Boolean(apiKey),
+      hasProxy: Boolean(proxyEndpoint)
+    };
+
+    if (apiKey) {
+      payload.apiKey = apiKey;
+    }
+    if (proxyEndpoint) {
+      payload.proxyEndpoint = proxyEndpoint;
+    }
+
+    res.json(payload);
   });
 
 exports.restaurantsProxy = functions

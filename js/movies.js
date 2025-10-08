@@ -1,5 +1,6 @@
 import { getCurrentUser, awaitAuthUser, db } from './auth.js';
 import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
+import { ensureTmdbCredentialsLoaded } from './tmdbCredentials.js';
 
 const MOVIE_PREFS_KEY = 'moviePreferences';
 const API_KEY_STORAGE = 'moviesApiKey';
@@ -2990,6 +2991,12 @@ async function loadMovies({ attemptStart } = {}) {
 export async function initMoviesPanel() {
   domRefs.list = document.getElementById('movieList');
   if (!domRefs.list) return;
+
+  await ensureTmdbCredentialsLoaded().catch(err => {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('Unable to preload TMDB credentials for movies panel', err);
+    }
+  });
 
   domRefs.interestedList = document.getElementById('savedMoviesList');
   domRefs.interestedFilters = document.getElementById('savedMoviesFilters');

@@ -47,6 +47,19 @@ const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
 const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const DEFAULT_MOVIE_LIMIT = 20;
 
+function resolveTmdbApiKey() {
+  return (
+    process.env.TMDB_API_KEY ||
+    process.env.TMDB_KEY ||
+    process.env.TMDB_TOKEN ||
+    ''
+  );
+}
+
+function resolveTmdbProxyEndpoint() {
+  return process.env.TMDB_PROXY_ENDPOINT || '';
+}
+
 // Enable CORS for all routes so the frontend can reach the API
 app.use(cors());
 
@@ -270,6 +283,29 @@ app.get('/api/spotify-client-id', (req, res) => {
     return res.status(500).json({ error: 'missing', hasEventbriteToken: HAS_EVENTBRITE_TOKEN });
   }
   res.json({ clientId, hasEventbriteToken: HAS_EVENTBRITE_TOKEN });
+});
+
+app.get('/api/tmdb-config', (req, res) => {
+  const apiKey = resolveTmdbApiKey();
+  const proxyEndpoint = resolveTmdbProxyEndpoint();
+
+  if (!apiKey && !proxyEndpoint) {
+    return res.status(404).json({ error: 'tmdb_config_unavailable' });
+  }
+
+  const payload = {
+    hasKey: Boolean(apiKey),
+    hasProxy: Boolean(proxyEndpoint)
+  };
+
+  if (apiKey) {
+    payload.apiKey = apiKey;
+  }
+  if (proxyEndpoint) {
+    payload.proxyEndpoint = proxyEndpoint;
+  }
+
+  res.json(payload);
 });
 
 app.get('/api/restaurants', async (req, res) => {
