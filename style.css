@@ -3445,12 +3445,6 @@ h2 {
   box-shadow: 0 0 0 3px rgba(122, 166, 140, 0.25);
 }
 
-.restaurants-api-help {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #4f5b55;
-}
-
 @media (min-width: 960px) {
   .restaurants-layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.65fr);

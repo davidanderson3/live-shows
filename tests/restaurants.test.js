@@ -64,7 +64,6 @@ function setupDom() {
   return new JSDOM(
     `
       <div id="restaurantsPanel">
-      <input id="yelpApiKeyInput" />
       <div id="restaurantsMap"></div>
       <div id="restaurantsResults">
         <div class="restaurants-tabs" role="tablist">
@@ -227,7 +226,7 @@ describe('initRestaurantsPanel', () => {
     expect(results.textContent).toContain('failed');
   });
 
-  it('prompts for a Yelp API key and retries when provided', async () => {
+  it('shows configuration guidance when Yelp API key is missing', async () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
@@ -244,10 +243,6 @@ describe('initRestaurantsPanel', () => {
     });
     global.navigator = window.navigator;
 
-    const retryResults = [
-      { id: 'retry-1', name: 'Retry Diner', rating: 4.1, reviewCount: 25, distance: 800 }
-    ];
-
     global.fetch = vi
       .fn()
       .mockResolvedValueOnce({
@@ -257,22 +252,6 @@ describe('initRestaurantsPanel', () => {
       .mockResolvedValueOnce({
         ok: false,
         json: () => Promise.resolve({ error: 'missing yelp api key' })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ address: { city: 'Atlanta' } })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(retryResults)
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([])
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([])
       });
 
     await initRestaurantsPanel();
@@ -280,26 +259,7 @@ describe('initRestaurantsPanel', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
 
     const message = document.querySelector('#restaurantsNearby .restaurants-message');
-    expect(message?.textContent).toContain('Yelp Fusion API key');
-
-    const apiInput = document.getElementById('yelpApiKeyInput');
-    apiInput.value = 'demoKey';
-    apiInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    expect(fetch).toHaveBeenCalledTimes(6);
-    expect(fetch.mock.calls[3][0]).toContain('apiKey=demoKey');
-    expect(geoMock.getCurrentPosition).toHaveBeenCalledTimes(2);
-    expect(window.localStorage.getItem('restaurants:apiKey')).toBe('demoKey');
-
-    const headings = Array.from(
-      document.querySelectorAll('#restaurantsNearby h3')
-    ).map(el => el.textContent);
-    expect(headings).toEqual(['Retry Diner']);
+    expect(message?.textContent).toContain('YELP_API_KEY');
   });
 
   it('renders all restaurants returned by the API', async () => {
