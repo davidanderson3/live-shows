@@ -2382,10 +2382,33 @@ h2 {
   margin-bottom: 12px;
 }
 
+.genre-filter-exclude-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.genre-filter-exclude-heading {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #444;
+}
+
 .genre-filter-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.genre-filter-btn.genre-filter-exclude-btn {
+  background: #f7e8e8;
+  border-color: #d9bcbc;
+}
+
+.genre-filter-btn.genre-filter-exclude-btn.active {
+  background: #c96f6f;
+  border-color: #c96f6f;
+  color: #fff;
 }
 
 .genre-filter-btn {
@@ -2413,6 +2436,10 @@ h2 {
   min-height: 1.2rem;
 }
 
+.genre-filter-exclude-value {
+  flex-wrap: wrap;
+}
+
 .genre-filter-active-label {
   font-weight: 600;
   font-size: 0.85rem;
@@ -2428,6 +2455,10 @@ h2 {
   background: #2f6b43;
   color: #fff;
   font-size: 0.85rem;
+}
+
+.genre-filter-chip.genre-filter-chip--exclude {
+  background: #7a2d2d;
 }
 
 .genre-filter-chip-remove {
@@ -2454,6 +2485,10 @@ h2 {
 .genre-filter-active-empty {
   font-size: 0.85rem;
   color: #555;
+}
+
+.genre-filter-active-empty.genre-filter-exclude-empty {
+  color: #775555;
 }
 
 .movie-tab,

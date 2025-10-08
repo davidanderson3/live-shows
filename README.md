@@ -21,6 +21,7 @@ Dashboard is a personal decision-making and entertainment hub that brings movie 
 The Movies tab is a curated discovery feed for film night:
 - **Three collections** – a live "Movie Stream" feed, a "Saved" list you can curate, and a "Watched" archive with ratings.
 - **Quality filters** – filter the stream by minimum TMDB rating, vote count, release year window, and genre before requesting more titles.
+- **Genre controls** – toggle a single focus genre or exclude any number of genres with pill chips; selections persist between visits and flow into TMDB `without_genres` requests.
 - **Progressive discovery** – the client keeps paging through TMDB Discover results until it finds enough titles that meet the quality threshold (`vote_average ≥ 7` and `vote_count ≥ 50` by default).
 - **Personal ratings** – mark any movie as Interested, Watched, or Not Interested. Ratings are clamped to 0–10 with half-point granularity.
 - **Saved list persistence** – lists and ratings are stored both locally and in Firestore so they follow the authenticated user.
