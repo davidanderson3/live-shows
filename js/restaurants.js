@@ -949,7 +949,7 @@ function getReviewCountValue(rest) {
 }
 
 function hasReviews(rest) {
-  return getReviewCountValue(rest) > 0;
+  return getReviewCountValue(rest) >= 5;
 }
 
 function filterReviewableRestaurants(items = []) {
