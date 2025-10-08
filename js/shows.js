@@ -279,6 +279,44 @@ function requestLocation() {
   });
 }
 
+function interpretEventbriteError(error) {
+  if (!error) {
+    return 'Unable to load Eventbrite events.';
+  }
+
+  const normalizedMessage = (error.message || '').toLowerCase();
+  const status = typeof error.status === 'number' ? error.status : null;
+
+  if (
+    status === 401 ||
+    normalizedMessage.includes('unauthorized') ||
+    normalizedMessage.includes('invalid oauth token')
+  ) {
+    return 'Eventbrite rejected the token. Paste the personal OAuth token from Account Settings → Developer → Your personal token and try again.';
+  }
+
+  if (
+    status === 404 ||
+    normalizedMessage.includes('not_found') ||
+    normalizedMessage.includes('not found')
+  ) {
+    return 'The Live Music proxy could not be reached. Start the local server with “npm start” or set window.apiBaseUrl to your deployed backend before trying Discover again.';
+  }
+
+  if (
+    status === 500 &&
+    normalizedMessage.includes('missing eventbrite api token')
+  ) {
+    return 'The server is missing an Eventbrite token. Enter your personal OAuth token above or configure EVENTBRITE_API_TOKEN on the backend.';
+  }
+
+  if (normalizedMessage) {
+    return error.message;
+  }
+
+  return 'Unable to load Eventbrite events.';
+}
+
 async function fetchEventbriteEvents({ latitude, longitude, token }) {
   const params = new URLSearchParams({
     lat: latitude.toFixed(4),
@@ -352,7 +390,7 @@ async function discoverNearbyShows() {
     }
   } catch (err) {
     console.error('Unable to load Eventbrite events', err);
-    setStatus(err.message || 'Unable to load Eventbrite events.', 'error');
+    setStatus(interpretEventbriteError(err), 'error');
     clearList();
   } finally {
     setLoading(false);
