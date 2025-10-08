@@ -5,7 +5,8 @@ const FALLBACK_API_BASE = DEFAULT_REMOTE_API_BASE;
 const TARGET_NEARBY_RESULTS = 60;
 const MAX_NEARBY_RESULTS = 200;
 const NEARBY_RESULTS_INCREMENT = 40;
-const NEARBY_RADIUS_STEPS_MILES = [null, 25, 50, 100];
+const YELP_MAX_RADIUS_MILES = 25;
+const NEARBY_RADIUS_STEPS_MILES = [null, YELP_MAX_RADIUS_MILES];
 
 let initialized = false;
 let mapInstance = null;
@@ -1038,6 +1039,24 @@ function shouldRequestMoreNearby() {
   return true;
 }
 
+function getNearbyEmptyMessage() {
+  if (isFetchingNearby) {
+    return 'Searching for more restaurants…';
+  }
+
+  const noRawResults =
+    !Array.isArray(rawNearbyRestaurants) || rawNearbyRestaurants.length === 0;
+  const reachedMaxRadius =
+    nearbyRadiusIndex >= NEARBY_RADIUS_STEPS_MILES.length - 1 &&
+    NEARBY_RADIUS_STEPS_MILES[nearbyRadiusIndex] === YELP_MAX_RADIUS_MILES;
+
+  if (noRawResults && reachedMaxRadius) {
+    return `No restaurants found within Yelp’s ${YELP_MAX_RADIUS_MILES}-mile search radius.`;
+  }
+
+  return 'No restaurants found.';
+}
+
 async function requestAdditionalNearbyRestaurants() {
   if (isFetchingNearby) return;
   if (!shouldRequestMoreNearby()) return;
@@ -1082,9 +1101,7 @@ function renderNearbySection() {
     return;
   }
 
-  const emptyMessage = isFetchingNearby
-    ? 'Searching for more restaurants…'
-    : 'No restaurants found.';
+  const emptyMessage = getNearbyEmptyMessage();
   renderRestaurantsList(container, visibleNearbyRestaurants, emptyMessage);
 }
 

@@ -241,7 +241,7 @@ describe('initRestaurantsPanel', () => {
     expect(headings).toEqual(['Fallback Favorite', 'Backup Bistro']);
   });
 
-  it('continues expanding the search radius until results are found', async () => {
+  it("falls back to a city search after reaching Yelp's radius cap", async () => {
     const dom = setupDom();
     global.window = dom.window;
     global.document = dom.window.document;
@@ -286,12 +286,62 @@ describe('initRestaurantsPanel', () => {
     expect(fetch).toHaveBeenCalledTimes(4);
     expect(fetch.mock.calls[1][0]).toContain('limit=60');
     expect(fetch.mock.calls[2][0]).toContain('radius=25');
-    expect(fetch.mock.calls[3][0]).toContain('radius=50');
+    expect(fetch.mock.calls[3][0]).toContain('city=Austin');
+    expect(fetch.mock.calls[3][0]).not.toContain('radius=');
+    expect(fetch.mock.calls[3][0]).not.toContain('latitude=');
+    expect(fetch.mock.calls[3][0]).not.toContain('longitude=');
 
     const headings = Array.from(
       document.querySelectorAll('#restaurantsNearby h3')
     ).map(el => el.textContent);
     expect(headings).toEqual(['Outskirts Eatery']);
+  });
+
+  it('shows Yelp radius guidance when no restaurants are available', async () => {
+    const dom = setupDom();
+    global.window = dom.window;
+    global.document = dom.window.document;
+    window.localStorage.clear();
+
+    const geoMock = {
+      getCurrentPosition: vi.fn(success => {
+        success({ coords: { latitude: 30.2672, longitude: -97.7431 } });
+      })
+    };
+    Object.defineProperty(window.navigator, 'geolocation', {
+      configurable: true,
+      value: geoMock
+    });
+    global.navigator = window.navigator;
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ address: { city: 'Austin' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([])
+      });
+
+    await initRestaurantsPanel();
+
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls[2][0]).toContain('radius=25');
+
+    const message = document.querySelector('#restaurantsNearby .restaurants-message');
+    expect(message?.textContent).toBe(
+      'No restaurants found within Yelp’s 25-mile search radius.'
+    );
   });
 
   it('uses user coordinates to sort by true distance even when API distances are misleading', async () => {
