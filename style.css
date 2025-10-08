@@ -168,12 +168,19 @@ body.mild-glow {
 /* horizontally scrollable tab list */
 .scroll-tabs {
   display: flex;
+  flex-wrap: nowrap;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   gap: 8px;
   padding: 0 8px;
   scrollbar-width: thin;
   touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
+.scroll-tabs .tab-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .scroll-tabs::-webkit-scrollbar {
@@ -1605,6 +1612,16 @@ h2 {
   display: flex;
   gap: 0;
   /* we'll rely on borders instead of space */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
+#listTabs::-webkit-scrollbar {
+  height: 6px;
 }
 
 #listTabs .list-tab {
@@ -1617,6 +1634,8 @@ h2 {
   cursor: pointer;
   font-weight: normal;
   transition: color 0.2s;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Remove the trailing border on last tab */
@@ -2373,6 +2392,16 @@ h2 {
   display: flex;
   gap: 4px;
   margin-bottom: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
+.movie-tabs::-webkit-scrollbar {
+  height: 6px;
 }
 
 .genre-filter {
@@ -2458,7 +2487,7 @@ h2 {
 
 .movie-tab,
 .shows-tab {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   padding: 6px;
   border: 1px solid #ccc;
   border-radius: 8px;
@@ -2467,6 +2496,7 @@ h2 {
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease,
     box-shadow 0.2s ease;
+  white-space: nowrap;
 }
 
 .movie-tab:focus-visible,
@@ -3326,6 +3356,16 @@ h2 {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 1rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
+.restaurants-tabs::-webkit-scrollbar {
+  height: 6px;
 }
 
 .restaurants-tab {
@@ -3338,6 +3378,8 @@ h2 {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .restaurants-tab.is-active {
