@@ -142,7 +142,39 @@ function updateFeedStatus(message, { tone = 'info', showSpinner = false } = {}) 
   const statusEl = domRefs.feedStatus;
   if (!statusEl) return;
   const normalizedMessage = typeof message === 'string' ? message : String(message ?? '');
-  if (showSpinner) {
+  const isCooldownMessage = /before requesting more movies/i.test(normalizedMessage);
+  if (isCooldownMessage) {
+    const fallbackLabel = normalizedMessage.trim()
+      ? normalizedMessage.trim()
+      : 'Preparing more movies shortly';
+    const ariaLabel = escapeForAttribute(fallbackLabel);
+    statusEl.innerHTML = `
+      <div class="movie-status__cooldown" role="status" aria-live="polite"${
+        ariaLabel ? ` aria-label="${ariaLabel}"` : ''
+      }>
+        <span class="movie-status__sr">${ariaLabel || 'Preparing more movies shortly'}</span>
+        <div class="movie-status__projector">
+          <div class="movie-status__reel"></div>
+          <div class="movie-status__filmstrip">
+            <span class="movie-status__frame"></span>
+            <span class="movie-status__frame"></span>
+            <span class="movie-status__frame"></span>
+            <span class="movie-status__frame"></span>
+          </div>
+          <div class="movie-status__reel movie-status__reel--right"></div>
+        </div>
+        <div class="movie-status__sparkles">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    `;
+    statusEl.setAttribute('aria-busy', 'true');
+    if (normalizedMessage.trim()) {
+      console.info(normalizedMessage);
+    }
+  } else if (showSpinner) {
     const ariaLabel = normalizedMessage.trim() ? escapeForAttribute(normalizedMessage) : '';
     statusEl.innerHTML = `
       <div class="movie-status__loader" role="status" aria-live="polite"${
@@ -167,7 +199,7 @@ function updateFeedStatus(message, { tone = 'info', showSpinner = false } = {}) 
   });
   const toneClass = STATUS_TONE_CLASSES[tone] || STATUS_TONE_CLASSES.info;
   statusEl.classList.add(toneClass);
-  statusEl.classList.toggle('movie-status--loading', Boolean(showSpinner));
+  statusEl.classList.toggle('movie-status--loading', Boolean(showSpinner || isCooldownMessage));
 }
 
 function clampUserRating(value) {
