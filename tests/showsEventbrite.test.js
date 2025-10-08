@@ -33,7 +33,7 @@ describe('initShowsPanel (Eventbrite)', () => {
       localStorage.setItem('eventbriteTokenV1', token);
     }
 
-    if (apiBaseUrl === undefined) {
+    if (apiBaseUrl === undefined || apiBaseUrl === null) {
       delete process.env.API_BASE_URL;
     } else {
       process.env.API_BASE_URL = apiBaseUrl;
@@ -136,6 +136,22 @@ describe('initShowsPanel (Eventbrite)', () => {
     expect(debugContainer.hidden).toBe(false);
     expect(debugOutput.textContent).toContain('Request URL:');
     expect(debugOutput.textContent).toContain('Live Show');
+  });
+
+  it('routes Eventbrite requests through the remote proxy when no API base override is provided', async () => {
+    await setup({ apiBaseUrl: null });
+
+    await initShowsPanel();
+
+    const button = document.getElementById('eventbriteDiscoverBtn');
+    button.click();
+
+    await flush();
+    await flush();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const requestedUrl = fetch.mock.calls[0][0];
+    expect(requestedUrl.startsWith('https://us-central1-decision-maker-4e1d3.cloudfunctions.net/eventbriteProxy')).toBe(true);
   });
 
   it('shows a helpful message when geolocation fails', async () => {

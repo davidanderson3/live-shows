@@ -58,8 +58,29 @@ function resolveEventbriteEndpoint(baseUrl) {
     };
   }
 
+  const hasWindow = typeof window !== 'undefined';
+  const locationOrigin = hasWindow && window.location?.origin
+    ? window.location.origin.replace(/\/$/, '')
+    : '';
+  const hasExplicitApiBaseOverride =
+    hasWindow &&
+    Object.prototype.hasOwnProperty.call(window, 'apiBaseUrl') &&
+    normalizeEndpoint(window.apiBaseUrl);
+
   const trimmedBase = normalizeEndpoint(baseUrl).replace(/\/$/, '');
-  if (!trimmedBase) {
+  let baseOrigin = '';
+  if (trimmedBase) {
+    try {
+      baseOrigin = new URL(trimmedBase, locationOrigin || undefined).origin;
+    } catch {
+      baseOrigin = '';
+    }
+  }
+
+  const matchesWindowOrigin =
+    hasWindow && locationOrigin && baseOrigin === locationOrigin;
+
+  if (!trimmedBase || (matchesWindowOrigin && !hasExplicitApiBaseOverride)) {
     return { endpoint: DEFAULT_EVENTBRITE_ENDPOINT, isRemote: true };
   }
 
