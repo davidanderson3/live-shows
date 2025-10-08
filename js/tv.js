@@ -2,7 +2,8 @@ import { getCurrentUser, awaitAuthUser, db } from './auth.js';
 import { DEFAULT_REMOTE_API_BASE } from './config.js';
 
 const TV_PREFS_KEY = 'tvPreferences';
-const API_KEY_STORAGE = 'tvApiKey';
+const TV_API_KEY_STORAGE = 'tvApiKey';
+const SHARED_API_KEY_STORAGE = 'moviesApiKey';
 const DEFAULT_INTEREST = 3;
 const INITIAL_DISCOVER_PAGES = 3;
 const MAX_DISCOVER_PAGES = 10;
@@ -482,7 +483,8 @@ function persistApiKey(key) {
   }
   if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem(API_KEY_STORAGE, key);
+      localStorage.setItem(TV_API_KEY_STORAGE, key);
+      localStorage.setItem(SHARED_API_KEY_STORAGE, key);
     } catch (_) {
       /* ignore */
     }
@@ -2496,7 +2498,9 @@ export async function initTvPanel() {
 
   const storedKey =
     (typeof window !== 'undefined' && window.tmdbApiKey) ||
-    (typeof localStorage !== 'undefined' && localStorage.getItem(API_KEY_STORAGE)) ||
+    (typeof localStorage !== 'undefined' && localStorage.getItem(TV_API_KEY_STORAGE)) ||
+    (typeof localStorage !== 'undefined' &&
+      localStorage.getItem(SHARED_API_KEY_STORAGE)) ||
     '';
   activeApiKey = storedKey || '';
   if (domRefs.apiKeyInput && storedKey) {
