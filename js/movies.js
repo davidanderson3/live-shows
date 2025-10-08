@@ -4,6 +4,7 @@ import { ensureTmdbCredentialsLoaded } from './tmdbCredentials.js';
 
 const MOVIE_PREFS_KEY = 'moviePreferences';
 const API_KEY_STORAGE = 'moviesApiKey';
+const SHARED_API_KEY_STORAGE_KEYS = Object.freeze([API_KEY_STORAGE, 'tvApiKey']);
 const DEFAULT_INTEREST = 3;
 const INITIAL_DISCOVER_PAGES = 3;
 const MAX_DISCOVER_PAGES = 10;
@@ -828,7 +829,9 @@ function persistApiKey(key) {
   }
   if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem(API_KEY_STORAGE, key);
+      SHARED_API_KEY_STORAGE_KEYS.forEach(storageKey => {
+        localStorage.setItem(storageKey, key);
+      });
     } catch (_) {
       /* ignore */
     }
