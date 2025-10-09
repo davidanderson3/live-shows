@@ -2549,10 +2549,59 @@ h2 {
   gap: 6px;
 }
 
+.genre-filter-exclude-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genre-filter-exclude-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #f7e8e8;
+  border: 1px solid #d9bcbc;
+  font-size: 0.85rem;
+}
+
+.genre-filter-exclude-name {
+  line-height: 1.2;
+}
+
+.genre-filter-exclude-remove {
+  border: none;
+  background: transparent;
+  color: #7a2d2d;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.genre-filter-exclude-remove:focus-visible {
+  outline: 2px solid #7a2d2d;
+  outline-offset: 2px;
+}
+
 .genre-filter-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.genre-filter-buttons--exclude {
+  gap: 4px;
+}
+
+.genre-filter-buttons--exclude .genre-filter-btn {
+  padding: 2px 8px;
+  font-size: 0.82rem;
 }
 
 .genre-filter-btn.genre-filter-exclude-btn {

@@ -151,7 +151,7 @@ describe('initShowsPanel (Eventbrite)', () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const requestedUrl = fetch.mock.calls[0][0];
-    expect(requestedUrl.startsWith('https://us-central1-decision-maker-4e1d3.cloudfunctions.net/eventbriteProxy')).toBe(true);
+    expect(requestedUrl.startsWith('https://narrow-down.web.app/api/eventbrite')).toBe(true);
   });
 
   it('shows a helpful message when geolocation fails', async () => {

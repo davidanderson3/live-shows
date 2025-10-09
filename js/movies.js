@@ -438,37 +438,14 @@ function updateFeedGenreUI() {
 
   const includeValueEl = container.querySelector('.genre-filter-include-value');
   if (includeValueEl) {
-    includeValueEl.innerHTML = '';
-
     if (
       currentValue &&
       genreMap &&
       Object.prototype.hasOwnProperty.call(genreMap, currentValue)
     ) {
-      const chip = document.createElement('span');
-      chip.className = 'genre-filter-chip';
-
-      const text = document.createElement('span');
-      text.className = 'genre-filter-chip-text';
-      text.textContent = genreMap[currentValue] || 'Selected';
-      chip.appendChild(text);
-
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'genre-filter-chip-remove';
-      removeBtn.setAttribute('aria-label', 'Clear genre filter');
-      removeBtn.textContent = '×';
-      removeBtn.addEventListener('click', () => {
-        setFeedFilter('genreId', '', { sanitize: true, persist: true });
-      });
-      chip.appendChild(removeBtn);
-
-      includeValueEl.appendChild(chip);
+      includeValueEl.textContent = genreMap[currentValue] || 'Selected';
     } else {
-      const span = document.createElement('span');
-      span.className = 'genre-filter-active-empty';
-      span.textContent = 'All genres';
-      includeValueEl.appendChild(span);
+      includeValueEl.textContent = 'All genres';
     }
   }
 
@@ -495,21 +472,24 @@ function updateFeedGenreUI() {
     if (!excludedStrings.length) {
       const span = document.createElement('span');
       span.className = 'genre-filter-active-empty genre-filter-exclude-empty';
-      span.textContent = 'No exclusions';
+      span.textContent = 'No genres excluded';
       excludeValueEl.appendChild(span);
     } else {
-      excludedStrings.forEach(value => {
-        const chip = document.createElement('span');
-        chip.className = 'genre-filter-chip genre-filter-chip--exclude';
+      const list = document.createElement('ul');
+      list.className = 'genre-filter-exclude-list';
 
-        const text = document.createElement('span');
-        text.className = 'genre-filter-chip-text';
-        text.textContent = genreMap?.[value] || 'Excluded';
-        chip.appendChild(text);
+      excludedStrings.forEach(value => {
+        const item = document.createElement('li');
+        item.className = 'genre-filter-exclude-item';
+
+        const name = document.createElement('span');
+        name.className = 'genre-filter-exclude-name';
+        name.textContent = genreMap?.[value] || 'Unknown';
+        item.appendChild(name);
 
         const removeBtn = document.createElement('button');
         removeBtn.type = 'button';
-        removeBtn.className = 'genre-filter-chip-remove';
+        removeBtn.className = 'genre-filter-exclude-remove';
         const label = genreMap?.[value] || 'genre';
         removeBtn.setAttribute('aria-label', `Allow ${label}`);
         removeBtn.textContent = '×';
@@ -521,10 +501,12 @@ function updateFeedGenreUI() {
           const nextState = buildExcludedGenreStateFromValues(next);
           setFeedFilter('excludedGenreIds', nextState, { sanitize: true, persist: true });
         });
-        chip.appendChild(removeBtn);
+        item.appendChild(removeBtn);
 
-        excludeValueEl.appendChild(chip);
+        list.appendChild(item);
       });
+
+      excludeValueEl.appendChild(list);
     }
   }
 }
@@ -679,10 +661,10 @@ function populateFeedGenreOptions() {
     excludeButtonsWrap.appendChild(btn);
   };
 
-  createExcludeButton('', 'Clear exclusions', { action: 'clear' });
+  createExcludeButton('', 'Clear', { action: 'clear' });
   entries.forEach(([id, name]) => {
     const labelText = String(name || 'Unknown');
-    createExcludeButton(String(id), `Exclude ${labelText}`, {});
+    createExcludeButton(String(id), labelText, {});
   });
 
   excludeSection.appendChild(excludeButtonsWrap);

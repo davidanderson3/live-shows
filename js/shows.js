@@ -4,7 +4,7 @@ const DEFAULT_EVENTBRITE_ENDPOINT =
   (typeof process !== 'undefined' &&
     process.env &&
     (process.env.EVENTBRITE_ENDPOINT || process.env.EVENTBRITE_PROXY_ENDPOINT)) ||
-  `${DEFAULT_REMOTE_API_BASE}/eventbriteProxy`;
+  `${DEFAULT_REMOTE_API_BASE}/eventbrite`;
 
 const EVENTBRITE_TOKEN_STORAGE_KEY = 'eventbriteTokenV1';
 const DEFAULT_RADIUS_MILES = 100;

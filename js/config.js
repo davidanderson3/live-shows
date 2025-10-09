@@ -1,4 +1,4 @@
-const DEFAULT_REMOTE_API_BASE = 'https://us-central1-decision-maker-4e1d3.cloudfunctions.net';
+const DEFAULT_REMOTE_API_BASE = 'https://narrow-down.web.app/api';
 
 function isLocalHost(hostname) {
   if (!hostname) return false;

@@ -146,6 +146,142 @@ function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit, radiusMi
   return parts;
 }
 
+const EXPANDED_SEARCH_RINGS = [
+  { distanceMiles: 18, bearings: [0, 72, 144, 216, 288] },
+  { distanceMiles: 32, bearings: [36, 108, 180, 252, 324] }
+];
+
+function toRadians(value) {
+  return (Number(value) * Math.PI) / 180;
+}
+
+function toDegrees(value) {
+  return (Number(value) * 180) / Math.PI;
+}
+
+function normalizeLongitudeDegrees(value) {
+  if (!Number.isFinite(value)) return null;
+  let longitude = value;
+  while (longitude > 180) longitude -= 360;
+  while (longitude < -180) longitude += 360;
+  return longitude;
+}
+
+function destinationPointMiles(latitude, longitude, distanceMiles, bearingDegrees) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!Number.isFinite(distanceMiles) || distanceMiles <= 0) return null;
+  const R = 3958.8; // Earth radius in miles
+  const phi1 = toRadians(latitude);
+  const lambda1 = toRadians(longitude);
+  const theta = toRadians(bearingDegrees);
+  const delta = distanceMiles / R;
+
+  const sinPhi1 = Math.sin(phi1);
+  const cosPhi1 = Math.cos(phi1);
+  const sinDelta = Math.sin(delta);
+  const cosDelta = Math.cos(delta);
+  const sinTheta = Math.sin(theta);
+  const cosTheta = Math.cos(theta);
+
+  const sinPhi2 = sinPhi1 * cosDelta + cosPhi1 * sinDelta * cosTheta;
+  const phi2 = Math.asin(Math.min(Math.max(sinPhi2, -1), 1));
+  const y = sinTheta * sinDelta * cosPhi1;
+  const x = cosDelta - sinPhi1 * Math.sin(phi2);
+  const lambda2 = lambda1 + Math.atan2(y, x);
+
+  const lat2 = toDegrees(phi2);
+  const lon2 = toDegrees(lambda2);
+  const normalizedLon = normalizeLongitudeDegrees(lon2);
+
+  if (!Number.isFinite(lat2) || !Number.isFinite(normalizedLon)) {
+    return null;
+  }
+
+  return { latitude: lat2, longitude: normalizedLon };
+}
+
+function generateExpandedSearchCenters(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+  const centers = [];
+  const seen = new Set();
+
+  EXPANDED_SEARCH_RINGS.forEach(ring => {
+    const { distanceMiles, bearings } = ring;
+    if (!Number.isFinite(distanceMiles) || !Array.isArray(bearings)) return;
+    bearings.forEach(bearing => {
+      const point = destinationPointMiles(latitude, longitude, distanceMiles, bearing);
+      if (!point) return;
+      const key = `${point.latitude.toFixed(4)},${point.longitude.toFixed(4)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      centers.push(point);
+    });
+  });
+
+  return centers;
+}
+
+async function fetchYelpBusinessesWithPagination(baseParams, { yelpKey, targetTotal, aggregated, seenIds }) {
+  let offset = 0;
+  let totalAvailable = null;
+  let shouldContinue = true;
+
+  while (shouldContinue && aggregated.length < targetTotal) {
+    const remainingNeeded = targetTotal - aggregated.length;
+    const batchLimit = Math.min(YELP_MAX_PAGE_LIMIT, remainingNeeded);
+    if (batchLimit <= 0) break;
+
+    const params = new URLSearchParams(baseParams);
+    params.set('limit', String(batchLimit));
+    if (offset > 0) {
+      params.set('offset', String(offset));
+    } else {
+      params.delete('offset');
+    }
+
+    const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${yelpKey}`
+      }
+    });
+
+    const data = await apiRes.json().catch(() => null);
+
+    if (!apiRes.ok || !data) {
+      const message =
+        data?.error?.description || data?.error?.code || data?.error || 'failed';
+      const error = new Error(message);
+      error.status = apiRes.status || 500;
+      throw error;
+    }
+
+    const results = Array.isArray(data?.businesses) ? data.businesses : [];
+    totalAvailable =
+      typeof data?.total === 'number' && data.total >= 0 ? data.total : totalAvailable;
+
+    offset += results.length;
+
+    for (const biz of results) {
+      if (!biz || typeof biz !== 'object') continue;
+      const id = biz.id;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      aggregated.push(biz);
+      if (aggregated.length >= targetTotal) {
+        break;
+      }
+    }
+
+    if (results.length < batchLimit) {
+      shouldContinue = false;
+    } else if (totalAvailable !== null && offset >= totalAvailable) {
+      shouldContinue = false;
+    }
+  }
+
+  return { totalAvailable };
+}
+
 function parseYelpBoolean(value) {
   if (value === undefined || value === null) return null;
   if (typeof value === 'boolean') return value;
@@ -526,55 +662,55 @@ app.get('/api/restaurants', async (req, res) => {
 
     const aggregated = [];
     const seenIds = new Set();
-    let offset = 0;
     let totalAvailable = null;
-    let shouldContinue = true;
 
-    while (shouldContinue && aggregated.length < targetTotal) {
-      const remainingNeeded = targetTotal - aggregated.length;
-      const batchLimit = Math.min(YELP_MAX_PAGE_LIMIT, remainingNeeded);
-      const params = new URLSearchParams(baseParams);
-      params.set('limit', String(batchLimit));
-      if (offset > 0) {
-        params.set('offset', String(offset));
-      }
+    const baseMeta = await fetchYelpBusinessesWithPagination(baseParams, {
+      yelpKey,
+      targetTotal,
+      aggregated,
+      seenIds
+    });
+    if (baseMeta && typeof baseMeta.totalAvailable === 'number') {
+      totalAvailable = baseMeta.totalAvailable;
+    }
 
-      const apiRes = await fetch(`${YELP_BASE_URL}?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${yelpKey}`
+    if (hasCoords && aggregated.length < targetTotal) {
+      const expansionCenters = generateExpandedSearchCenters(latitude, longitude);
+      const expansionRadiusMiles =
+        Number.isFinite(radiusMiles) && radiusMiles > 0 ? radiusMiles : 25;
+      const expansionRadiusMeters =
+        Number.isFinite(expansionRadiusMiles) && expansionRadiusMiles > 0
+          ? Math.min(Math.round(expansionRadiusMiles * 1609.34), 40000)
+          : null;
+
+      for (const center of expansionCenters) {
+        if (aggregated.length >= targetTotal) break;
+        const params = new URLSearchParams(baseParams);
+        params.set('latitude', String(center.latitude));
+        params.set('longitude', String(center.longitude));
+        if (Number.isFinite(expansionRadiusMeters) && expansionRadiusMeters > 0) {
+          params.set('radius', String(expansionRadiusMeters));
+        } else {
+          params.delete('radius');
         }
-      });
 
-      const data = await apiRes.json().catch(() => null);
-
-      if (!apiRes.ok || !data) {
-        const message =
-          data?.error?.description || data?.error?.code || data?.error || 'failed';
-        res.status(apiRes.status).json({ error: message });
-        return;
-      }
-
-      const results = Array.isArray(data?.businesses) ? data.businesses : [];
-      totalAvailable =
-        typeof data?.total === 'number' && data.total >= 0 ? data.total : totalAvailable;
-
-      offset += results.length;
-
-      for (const biz of results) {
-        if (!biz || typeof biz !== 'object') continue;
-        const id = biz.id;
-        if (!id || seenIds.has(id)) continue;
-        seenIds.add(id);
-        aggregated.push(biz);
-        if (aggregated.length >= targetTotal) {
-          break;
+        try {
+          const meta = await fetchYelpBusinessesWithPagination(params, {
+            yelpKey,
+            targetTotal,
+            aggregated,
+            seenIds
+          });
+          if (meta && typeof meta.totalAvailable === 'number') {
+            if (totalAvailable === null) {
+              totalAvailable = meta.totalAvailable;
+            } else {
+              totalAvailable = Math.max(totalAvailable, meta.totalAvailable);
+            }
+          }
+        } catch (err) {
+          console.warn('Expanded Yelp search attempt failed', err);
         }
-      }
-
-      if (results.length < batchLimit) {
-        shouldContinue = false;
-      } else if (totalAvailable !== null && offset >= totalAvailable) {
-        shouldContinue = false;
       }
     }
 
@@ -606,7 +742,11 @@ app.get('/api/restaurants', async (req, res) => {
     res.type('application/json').send(payload);
   } catch (err) {
     console.error('Restaurant proxy failed', err);
-    res.status(500).json({ error: 'failed' });
+    const status =
+      err && typeof err.status === 'number' && err.status >= 400 ? err.status : 500;
+    const message =
+      err && typeof err.message === 'string' && err.message ? err.message : 'failed';
+    res.status(status).json({ error: message });
   }
 });
 
