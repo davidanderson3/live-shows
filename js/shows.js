@@ -283,7 +283,7 @@ function createEventCard(event) {
 
   const title = document.createElement('h3');
   title.className = 'show-card__title';
-  title.textContent = event?.name?.text?.trim() || 'Live music event';
+  title.textContent = event?.name?.text?.trim() || 'Live show';
   header.appendChild(title);
 
   const meta = document.createElement('p');
@@ -348,7 +348,7 @@ function renderEvents(events) {
     const empty = document.createElement('p');
     empty.className = 'shows-empty';
     empty.textContent =
-      'No upcoming music events were found nearby. Try expanding your search radius or checking again later.';
+      'No upcoming music or comedy events were found nearby. Try expanding your search radius or checking again later.';
     elements.list.appendChild(empty);
     return;
   }
@@ -527,7 +527,7 @@ async function discoverNearbyShows() {
     const token = elements.tokenInput?.value?.trim() || '';
     saveToken(token);
 
-    setStatus('Searching Eventbrite for nearby music events…');
+    setStatus('Searching Eventbrite for nearby music and comedy events…');
     const result = await fetchEventbriteEvents({
       latitude: location.latitude,
       longitude: location.longitude,
@@ -546,7 +546,7 @@ async function discoverNearbyShows() {
     if (result.events.length > 0) {
       setStatus(`Found ${result.events.length} upcoming event${result.events.length === 1 ? '' : 's'}.`);
     } else {
-      setStatus('No music events found near you right now.', 'warning');
+      setStatus('No music or comedy events found near you right now.', 'warning');
     }
   } catch (err) {
     console.error('Unable to load Eventbrite events', err);

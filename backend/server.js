@@ -778,14 +778,30 @@ function addDays(dateString, days) {
   return toDateString(date);
 }
 
-function eventbriteMemoryCacheKey({ scope, latitude, longitude, radiusMiles, startDate, endDate }) {
+function eventbriteMemoryCacheKey({
+  scope,
+  latitude,
+  longitude,
+  radiusMiles,
+  startDate,
+  endDate,
+  segment
+}) {
   const latPart = normalizeCoordinate(latitude, 3);
   const lonPart = normalizeCoordinate(longitude, 3);
   const radiusPart = Number.isFinite(radiusMiles) ? Number(radiusMiles.toFixed(1)) : 'none';
-  return [scope, latPart, lonPart, radiusPart, startDate, endDate].join('::');
+  return [scope, latPart, lonPart, radiusPart, startDate, endDate, segment || 'all'].join('::');
 }
 
-function eventbriteCacheKeyParts({ token, latitude, longitude, radiusMiles, startDate, endDate }) {
+function eventbriteCacheKeyParts({
+  token,
+  latitude,
+  longitude,
+  radiusMiles,
+  startDate,
+  endDate,
+  segment
+}) {
   const tokenPart = String(token || '');
   const latPart = normalizeCoordinate(latitude, 3);
   const lonPart = normalizeCoordinate(longitude, 3);
@@ -797,7 +813,8 @@ function eventbriteCacheKeyParts({ token, latitude, longitude, radiusMiles, star
     `lon:${lonPart}`,
     `radius:${radiusPart}`,
     `from:${startDate}`,
-    `to:${endDate}`
+    `to:${endDate}`,
+    `segment:${segment || 'all'}`
   ];
 }
 
@@ -836,6 +853,28 @@ function normalizeDateString(value) {
   return toDateString(date);
 }
 
+const EVENTBRITE_SEGMENTS = [
+  {
+    key: 'music',
+    description: 'Live music',
+    params: { categories: '103' }
+  },
+  {
+    key: 'comedy',
+    description: 'Comedy',
+    params: { subcategories: '3004' }
+  }
+];
+
+function extractEventStart(event) {
+  const start = event?.start;
+  if (!start) return Number.POSITIVE_INFINITY;
+  const raw = start.utc || start.local;
+  if (!raw) return Number.POSITIVE_INFINITY;
+  const timestamp = Date.parse(raw);
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
+}
+
 app.get('/api/eventbrite', async (req, res) => {
   const { token: queryToken, lat, lon, radius, startDate: startParam, days } = req.query || {};
   const latitude = normalizeCoordinate(lat, 4);
@@ -858,60 +897,68 @@ app.get('/api/eventbrite', async (req, res) => {
   }
 
   const scope = queryToken ? 'manual' : 'server';
-  const memoryKey = eventbriteMemoryCacheKey({
-    scope,
-    latitude,
-    longitude,
-    radiusMiles,
-    startDate: normalizedStart,
-    endDate
-  });
 
-  const cached = getEventbriteCacheEntry(memoryKey);
-  if (cached) {
-    return res.status(cached.status).type('application/json').send(cached.text);
-  }
-
-  const sharedCached = await readCachedResponse(
-    EVENTBRITE_CACHE_COLLECTION,
-    eventbriteCacheKeyParts({
-      token: scope === 'manual' ? queryToken : effectiveToken,
+  async function fetchSegment({ key, params: segmentParams, description }) {
+    const memoryKey = eventbriteMemoryCacheKey({
+      scope,
       latitude,
       longitude,
       radiusMiles,
       startDate: normalizedStart,
-      endDate
-    }),
-    EVENTBRITE_CACHE_TTL_MS
-  );
-  if (sharedCached) {
-    setEventbriteCacheEntry(memoryKey, {
-      status: sharedCached.status,
-      text: sharedCached.body
+      endDate,
+      segment: key
     });
-    sendCachedResponse(res, sharedCached);
-    return;
-  }
 
-  const params = new URLSearchParams({
-    'location.latitude': String(latitude),
-    'location.longitude': String(longitude),
-    expand: 'venue',
-    sort_by: 'date',
-    categories: '103',
-    'start_date.range_start': `${normalizedStart}T00:00:00Z`,
-    'start_date.range_end': `${endDate}T23:59:59Z`
-  });
+    const cached = getEventbriteCacheEntry(memoryKey);
+    if (cached) {
+      return { segment: key, description, status: cached.status, text: cached.text };
+    }
 
-  if (Number.isFinite(radiusMiles)) {
-    params.set('location.within', `${Math.min(Math.max(radiusMiles, 1), 1000).toFixed(1)}mi`);
-  } else {
-    params.set('location.within', '100.0mi');
-  }
+    const sharedCached = await readCachedResponse(
+      EVENTBRITE_CACHE_COLLECTION,
+      eventbriteCacheKeyParts({
+        token: scope === 'manual' ? queryToken : effectiveToken,
+        latitude,
+        longitude,
+        radiusMiles,
+        startDate: normalizedStart,
+        endDate,
+        segment: key
+      }),
+      EVENTBRITE_CACHE_TTL_MS
+    );
+    if (sharedCached) {
+      const payload = {
+        segment: key,
+        description,
+        status: sharedCached.status,
+        text: sharedCached.body
+      };
+      setEventbriteCacheEntry(memoryKey, { status: sharedCached.status, text: sharedCached.body });
+      return payload;
+    }
 
-  const url = `https://www.eventbriteapi.com/v3/events/search/?${params.toString()}`;
+    const params = new URLSearchParams({
+      'location.latitude': String(latitude),
+      'location.longitude': String(longitude),
+      expand: 'venue',
+      sort_by: 'date',
+      'start_date.range_start': `${normalizedStart}T00:00:00Z`,
+      'start_date.range_end': `${endDate}T23:59:59Z`
+    });
 
-  try {
+    if (Number.isFinite(radiusMiles)) {
+      params.set('location.within', `${Math.min(Math.max(radiusMiles, 1), 1000).toFixed(1)}mi`);
+    } else {
+      params.set('location.within', '100.0mi');
+    }
+
+    for (const [paramKey, value] of Object.entries(segmentParams)) {
+      params.set(paramKey, value);
+    }
+
+    const url = `https://www.eventbriteapi.com/v3/events/search/?${params.toString()}`;
+
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${effectiveToken}`
@@ -928,7 +975,8 @@ app.get('/api/eventbrite', async (req, res) => {
           longitude,
           radiusMiles,
           startDate: normalizedStart,
-          endDate
+          endDate,
+          segment: key
         }),
         {
           status: response.status,
@@ -940,12 +988,96 @@ app.get('/api/eventbrite', async (req, res) => {
             radiusMiles: Number.isFinite(radiusMiles) ? radiusMiles : null,
             startDate: normalizedStart,
             endDate,
+            segment: key,
+            segmentDescription: description,
             usingDefaultToken: !queryToken
           }
         }
       );
     }
-    res.status(response.status).type('application/json').send(text);
+
+    return { segment: key, description, status: response.status, text };
+  }
+
+  try {
+    const segmentResponses = await Promise.all(
+      EVENTBRITE_SEGMENTS.map(segment =>
+        fetchSegment(segment).catch(err => ({ segment: segment.key, description: segment.description, error: err }))
+      )
+    );
+
+    const dedupedEvents = new Map();
+    const segmentSummaries = [];
+    let successfulSegment = false;
+
+    for (const result of segmentResponses) {
+      const { segment, description } = result;
+      if (result.error) {
+        console.error('Eventbrite segment fetch failed', description || segment, result.error);
+        segmentSummaries.push({
+          key: segment,
+          description,
+          ok: false,
+          error: result.error.message || 'Unknown error'
+        });
+        continue;
+      }
+
+      if (result.status < 200 || result.status >= 300) {
+        segmentSummaries.push({
+          key: segment,
+          description,
+          ok: false,
+          status: result.status
+        });
+        continue;
+      }
+
+      successfulSegment = true;
+
+      let data;
+      try {
+        data = result.text ? JSON.parse(result.text) : null;
+      } catch (err) {
+        console.warn('Unable to parse Eventbrite segment response', segment, err);
+        segmentSummaries.push({
+          key: segment,
+          description,
+          ok: false,
+          error: 'Invalid JSON response'
+        });
+        continue;
+      }
+
+      const events = Array.isArray(data?.events) ? data.events : [];
+      for (const event of events) {
+        const eventId = event?.id || `${segment}::${JSON.stringify(event)}`;
+        if (!dedupedEvents.has(eventId)) {
+          dedupedEvents.set(eventId, event);
+        }
+      }
+
+      segmentSummaries.push({
+        key: segment,
+        description,
+        ok: true,
+        status: result.status,
+        total: events.length
+      });
+    }
+
+    if (!successfulSegment) {
+      res.status(502).json({ error: 'failed', segments: segmentSummaries });
+      return;
+    }
+
+    const combinedEvents = Array.from(dedupedEvents.values()).sort((a, b) => extractEventStart(a) - extractEventStart(b));
+
+    res.status(200).json({
+      events: combinedEvents,
+      segments: segmentSummaries,
+      generatedAt: new Date().toISOString()
+    });
   } catch (err) {
     console.error('Eventbrite fetch failed', err);
     res.status(500).json({ error: 'failed' });

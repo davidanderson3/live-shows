@@ -28,9 +28,9 @@ The Movies tab is a curated discovery feed for film night:
 - **TMDB integration** – the UI accepts either a direct TMDB API key or uses the deployed Cloud Function proxy (`/tmdbProxy`) to keep the client keyless.
 
 ### Live Music
-The Live Music tab now focuses on quick Eventbrite lookups for nearby concerts:
+The Live Music tab now focuses on quick Eventbrite lookups for nearby concerts and comedy shows:
 - **Eventbrite personal token input** stored locally so you only paste it once.
-- **Location-based search** that requests your current coordinates and looks for music events (category 103) within a 100-mile radius over the next two weeks.
+- **Location-based search** that requests your current coordinates and looks for music or comedy events (music category 103 and comedy subcategory 3004) within a 100-mile radius over the next two weeks.
 - **Inline status messages** explaining when location sharing is blocked, a token is missing, or no shows were returned.
 
 ### Restaurants
@@ -50,7 +50,7 @@ Separate helper pages (`backup.json`, `restore.html`, `settings.html`) provide a
 ### Eventbrite integration
 The Eventbrite proxy performs a location-first search so the Discover button can surface concerts without exposing your token to the browser:
 1. Calls the Express proxy at `/api/eventbrite` with your latitude, longitude, a default 100-mile radius, and a 14-day window. The proxy converts the radius to Eventbrite's `within` parameter, persists a rolling 24-hour cache keyed by location and start date, and accepts either the server-side token or a manually supplied one.
-2. Limits results to Eventbrite's music category (`categories=103`) and sorts events by date before returning them to the client.
+2. Aggregates Eventbrite's live music category (`categories=103`) and comedy subcategory (`subcategories=3004`), then sorts events by date before returning them to the client.
 3. Normalizes responses into a lightweight shape (name, venue, datetime, ticket URL) that the front end renders directly.
 
 When Eventbrite asks for credentials, supply the **personal OAuth token** (labelled "private token" in their UI) that appears under **Account Settings → Developer → Your personal token**. The classic API key/secret pair does not authorize the Events Search endpoint, so the proxy will return HTTP 401 if you paste those values. You can also set the same personal token in `EVENTBRITE_API_TOKEN`, `EVENTBRITE_OAUTH_TOKEN`, or `EVENTBRITE_TOKEN` on the backend to avoid entering it in the browser.
