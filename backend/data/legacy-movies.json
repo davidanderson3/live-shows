@@ -1,0 +1,82 @@
+[
+  {
+    "id": "tt0111161",
+    "title": "The Shawshank Redemption",
+    "score": 9.3,
+    "releaseDate": "1994-09-23",
+    "voteCount": 2500000,
+    "popularity": 95.0
+  },
+  {
+    "id": "tt0068646",
+    "title": "The Godfather",
+    "score": 9.2,
+    "releaseDate": "1972-03-24",
+    "voteCount": 1800000,
+    "popularity": 88.0
+  },
+  {
+    "id": "tt0071562",
+    "title": "The Godfather Part II",
+    "score": 9.0,
+    "releaseDate": "1974-12-20",
+    "voteCount": 1200000,
+    "popularity": 82.0
+  },
+  {
+    "id": "tt0468569",
+    "title": "The Dark Knight",
+    "score": 9.0,
+    "releaseDate": "2008-07-18",
+    "voteCount": 2800000,
+    "popularity": 99.0
+  },
+  {
+    "id": "tt0050083",
+    "title": "12 Angry Men",
+    "score": 8.9,
+    "releaseDate": "1957-04-10",
+    "voteCount": 800000,
+    "popularity": 70.0
+  },
+  {
+    "id": "tt0108052",
+    "title": "Schindler's List",
+    "score": 8.9,
+    "releaseDate": "1993-12-15",
+    "voteCount": 1400000,
+    "popularity": 78.0
+  },
+  {
+    "id": "tt0167260",
+    "title": "The Lord of the Rings: The Return of the King",
+    "score": 8.9,
+    "releaseDate": "2003-12-17",
+    "voteCount": 1900000,
+    "popularity": 90.0
+  },
+  {
+    "id": "tt0110912",
+    "title": "Pulp Fiction",
+    "score": 8.9,
+    "releaseDate": "1994-10-14",
+    "voteCount": 2000000,
+    "popularity": 92.0
+  },
+  {
+    "id": "tt0060196",
+    "title": "The Good, the Bad and the Ugly",
+    "score": 8.8,
+    "releaseDate": "1966-12-23",
+    "voteCount": 700000,
+    "popularity": 65.0
+  },
+  {
+    "id": "tt0120737",
+    "title": "The Lord of the Rings: The Fellowship of the Ring",
+    "score": 8.8,
+    "releaseDate": "2001-12-19",
+    "voteCount": 1900000,
+    "popularity": 87.0
+  }
+]

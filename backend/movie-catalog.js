@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { readCachedResponse, writeCachedResponse } = require('../shared/cache');
 
 const MIN_SCORE = 6;
@@ -544,7 +546,48 @@ async function fetchRangeCatalog(range, credentials) {
   };
 }
 
+const LOCAL_LEGACY_DATA_PATH = path.join(__dirname, 'data', 'legacy-movies.json');
+
+async function loadLocalLegacyCatalog() {
+  try {
+    const contents = await fs.promises.readFile(LOCAL_LEGACY_DATA_PATH, 'utf8');
+    const parsed = JSON.parse(contents);
+    const rawMovies = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.movies) ? parsed.movies : [];
+    const movies = rawMovies
+      .map(item => ({
+        id: item?.id ?? item?.movieID ?? item?.movieId ?? item?.imdbID ?? null,
+        title: item?.title || '',
+        score: Number(item?.score ?? item?.rating ?? 0),
+        releaseDate: item?.releaseDate || item?.release_date || null,
+        voteCount: Number(item?.voteCount ?? item?.vote_count ?? 0),
+        popularity: Number(item?.popularity ?? 0)
+      }))
+      .filter(movie => movie.id && movie.title && Number.isFinite(movie.score));
+    if (!movies.length) {
+      return null;
+    }
+    return {
+      movies,
+      metadata: {
+        source: 'local',
+        totalCollected: movies.length,
+        path: LOCAL_LEGACY_DATA_PATH
+      }
+    };
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('Failed to load local legacy movie dataset', err);
+    }
+    return null;
+  }
+}
+
 async function fetchLegacyCatalog() {
+  const local = await loadLocalLegacyCatalog();
+  if (local) {
+    return local;
+  }
+
   const url =
     'https://raw.githubusercontent.com/FEND16/movie-json-data/master/json/top-rated-movies-01.json';
   try {
@@ -569,12 +612,22 @@ async function fetchLegacyCatalog() {
           })
           .filter(Boolean)
       : [];
+    if (!movies.length) {
+      const fallback = await loadLocalLegacyCatalog();
+      if (fallback) {
+        return fallback;
+      }
+    }
     return {
       movies,
       metadata: { source: 'legacy', totalCollected: movies.length, url }
     };
   } catch (err) {
     console.error('Failed to load legacy movie dataset', err);
+    const fallback = await loadLocalLegacyCatalog();
+    if (fallback) {
+      return fallback;
+    }
     return { movies: [], metadata: { source: 'legacy', error: err?.message || 'failed' } };
   }
 }
