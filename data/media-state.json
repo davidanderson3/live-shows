@@ -1,0 +1,585 @@
+{
+  "movieStream": [
+    {
+      "id": "m1",
+      "title": "Dune: Part Two",
+      "year": 2024,
+      "genres": [
+        "Science Fiction",
+        "Adventure"
+      ],
+      "rating": 8.7,
+      "votes": 214532,
+      "shown": true
+    },
+    {
+      "id": "m2",
+      "title": "Poor Things",
+      "year": 2023,
+      "genres": [
+        "Drama",
+        "Fantasy"
+      ],
+      "rating": 8.2,
+      "votes": 96441,
+      "shown": true
+    },
+    {
+      "id": "m3",
+      "title": "Past Lives",
+      "year": 2023,
+      "genres": [
+        "Romance",
+        "Drama"
+      ],
+      "rating": 8.0,
+      "votes": 68212,
+      "shown": true
+    },
+    {
+      "id": "m4",
+      "title": "The Zone of Interest",
+      "year": 2023,
+      "genres": [
+        "War",
+        "Drama"
+      ],
+      "rating": 7.6,
+      "votes": 41205,
+      "shown": true
+    },
+    {
+      "id": "m5",
+      "title": "Spider-Man: Across the Spider-Verse",
+      "year": 2023,
+      "genres": [
+        "Animation",
+        "Action"
+      ],
+      "rating": 8.9,
+      "votes": 379524,
+      "shown": true
+    },
+    {
+      "id": "m6",
+      "title": "Anatomy of a Fall",
+      "year": 2023,
+      "genres": [
+        "Thriller",
+        "Drama"
+      ],
+      "rating": 7.8,
+      "votes": 51863,
+      "shown": false
+    },
+    {
+      "id": "m7",
+      "title": "The Holdovers",
+      "year": 2023,
+      "genres": [
+        "Comedy",
+        "Drama"
+      ],
+      "rating": 7.7,
+      "votes": 78544,
+      "shown": true
+    },
+    {
+      "id": "m8",
+      "title": "Oppenheimer",
+      "year": 2023,
+      "genres": [
+        "Biography",
+        "Drama"
+      ],
+      "rating": 8.6,
+      "votes": 680551,
+      "shown": true
+    },
+    {
+      "id": "m9",
+      "title": "Killers of the Flower Moon",
+      "year": 2023,
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
+      "rating": 7.8,
+      "votes": 164228,
+      "shown": false
+    },
+    {
+      "id": "m10",
+      "title": "Godzilla x Kong: The New Empire",
+      "year": 2024,
+      "genres": [
+        "Action",
+        "Science Fiction"
+      ],
+      "rating": 6.5,
+      "votes": 98211,
+      "shown": false
+    },
+    {
+      "id": "m11",
+      "title": "The Marvels",
+      "year": 2023,
+      "genres": [
+        "Action",
+        "Adventure"
+      ],
+      "rating": 6.1,
+      "votes": 154882,
+      "shown": false
+    },
+    {
+      "id": "m12",
+      "title": "Wonka",
+      "year": 2023,
+      "genres": [
+        "Family",
+        "Fantasy"
+      ],
+      "rating": 7.3,
+      "votes": 215774,
+      "shown": false
+    }
+  ],
+  "movieSaved": [
+    {
+      "id": "s1",
+      "title": "Asteroid City",
+      "year": 2023,
+      "genres": [
+        "Comedy",
+        "Drama"
+      ],
+      "rating": 6.8,
+      "interestLevel": 3
+    },
+    {
+      "id": "s2",
+      "title": "Napoleon",
+      "year": 2023,
+      "genres": [
+        "War",
+        "Drama"
+      ],
+      "rating": 6.5,
+      "interestLevel": 2
+    },
+    {
+      "id": "s3",
+      "title": "The Iron Claw",
+      "year": 2023,
+      "genres": [
+        "Biography",
+        "Drama"
+      ],
+      "rating": 7.7,
+      "interestLevel": 4
+    },
+    {
+      "id": "s4",
+      "title": "Mission: Impossible – Dead Reckoning Part One",
+      "year": 2023,
+      "genres": [
+        "Action",
+        "Thriller"
+      ],
+      "rating": 7.8,
+      "interestLevel": 5
+    },
+    {
+      "id": "s5",
+      "title": "Barbie",
+      "year": 2023,
+      "genres": [
+        "Comedy",
+        "Fantasy"
+      ],
+      "rating": 7.0,
+      "interestLevel": 3
+    },
+    {
+      "id": "s6",
+      "title": "American Fiction",
+      "year": 2023,
+      "genres": [
+        "Comedy",
+        "Drama"
+      ],
+      "rating": 7.5,
+      "interestLevel": 4
+    },
+    {
+      "id": "s7",
+      "title": "May December",
+      "year": 2023,
+      "genres": [
+        "Drama"
+      ],
+      "rating": 7.2,
+      "interestLevel": 3
+    },
+    {
+      "id": "s8",
+      "title": "The Killer",
+      "year": 2023,
+      "genres": [
+        "Thriller",
+        "Crime"
+      ],
+      "rating": 6.9,
+      "interestLevel": 2
+    }
+  ],
+  "movieWatched": [
+    {
+      "id": "w1",
+      "title": "Everything Everywhere All at Once",
+      "year": 2022,
+      "genres": [
+        "Science Fiction",
+        "Adventure"
+      ],
+      "rating": 8.0,
+      "personalRating": 9.5,
+      "watchedDate": "2024-03-12"
+    },
+    {
+      "id": "w2",
+      "title": "Top Gun: Maverick",
+      "year": 2022,
+      "genres": [
+        "Action",
+        "Adventure"
+      ],
+      "rating": 8.3,
+      "personalRating": 8.7,
+      "watchedDate": "2024-01-28"
+    },
+    {
+      "id": "w3",
+      "title": "Glass Onion: A Knives Out Mystery",
+      "year": 2022,
+      "genres": [
+        "Mystery",
+        "Comedy"
+      ],
+      "rating": 7.1,
+      "personalRating": 7.8,
+      "watchedDate": "2023-12-05"
+    },
+    {
+      "id": "w4",
+      "title": "Nope",
+      "year": 2022,
+      "genres": [
+        "Horror",
+        "Science Fiction"
+      ],
+      "rating": 6.8,
+      "personalRating": 6.5,
+      "watchedDate": "2023-10-22"
+    },
+    {
+      "id": "w5",
+      "title": "RRR",
+      "year": 2022,
+      "genres": [
+        "Action",
+        "Drama"
+      ],
+      "rating": 7.9,
+      "personalRating": 8.9,
+      "watchedDate": "2024-02-17"
+    },
+    {
+      "id": "w6",
+      "title": "Avatar: The Way of Water",
+      "year": 2022,
+      "genres": [
+        "Science Fiction",
+        "Adventure"
+      ],
+      "rating": 7.6,
+      "personalRating": 7.2,
+      "watchedDate": "2023-11-11"
+    },
+    {
+      "id": "w7",
+      "title": "The Batman",
+      "year": 2022,
+      "genres": [
+        "Action",
+        "Crime"
+      ],
+      "rating": 7.8,
+      "personalRating": 8.3,
+      "watchedDate": "2023-09-03"
+    }
+  ],
+  "tvStream": [
+    {
+      "id": "t1",
+      "title": "Shōgun",
+      "seasons": 1,
+      "genres": [
+        "Drama",
+        "Historical"
+      ],
+      "rating": 8.9,
+      "shown": true
+    },
+    {
+      "id": "t2",
+      "title": "True Detective: Night Country",
+      "seasons": 4,
+      "genres": [
+        "Crime",
+        "Mystery"
+      ],
+      "rating": 7.4,
+      "shown": true
+    },
+    {
+      "id": "t3",
+      "title": "The Bear",
+      "seasons": 3,
+      "genres": [
+        "Drama",
+        "Comedy"
+      ],
+      "rating": 8.6,
+      "shown": true
+    },
+    {
+      "id": "t4",
+      "title": "Succession",
+      "seasons": 4,
+      "genres": [
+        "Drama"
+      ],
+      "rating": 8.9,
+      "shown": true
+    },
+    {
+      "id": "t5",
+      "title": "Fargo",
+      "seasons": 5,
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
+      "rating": 8.3,
+      "shown": true
+    },
+    {
+      "id": "t6",
+      "title": "The Last of Us",
+      "seasons": 1,
+      "genres": [
+        "Drama",
+        "Science Fiction"
+      ],
+      "rating": 8.8,
+      "shown": true
+    },
+    {
+      "id": "t7",
+      "title": "House of the Dragon",
+      "seasons": 2,
+      "genres": [
+        "Fantasy",
+        "Drama"
+      ],
+      "rating": 8.5,
+      "shown": false
+    },
+    {
+      "id": "t8",
+      "title": "Loki",
+      "seasons": 2,
+      "genres": [
+        "Science Fiction",
+        "Action"
+      ],
+      "rating": 7.3,
+      "shown": false
+    },
+    {
+      "id": "t9",
+      "title": "Foundation",
+      "seasons": 2,
+      "genres": [
+        "Science Fiction",
+        "Drama"
+      ],
+      "rating": 7.5,
+      "shown": false
+    },
+    {
+      "id": "t10",
+      "title": "The Witcher",
+      "seasons": 3,
+      "genres": [
+        "Fantasy",
+        "Adventure"
+      ],
+      "rating": 7.2,
+      "shown": false
+    },
+    {
+      "id": "t11",
+      "title": "Poker Face",
+      "seasons": 1,
+      "genres": [
+        "Mystery",
+        "Comedy"
+      ],
+      "rating": 8.0,
+      "shown": true
+    }
+  ],
+  "tvSaved": [
+    {
+      "id": "ts1",
+      "title": "Severance",
+      "genres": [
+        "Drama",
+        "Science Fiction"
+      ],
+      "rating": 8.7,
+      "interestLevel": 5
+    },
+    {
+      "id": "ts2",
+      "title": "Silo",
+      "genres": [
+        "Science Fiction",
+        "Drama"
+      ],
+      "rating": 8.0,
+      "interestLevel": 4
+    },
+    {
+      "id": "ts3",
+      "title": "Slow Horses",
+      "genres": [
+        "Thriller",
+        "Drama"
+      ],
+      "rating": 8.0,
+      "interestLevel": 4
+    },
+    {
+      "id": "ts4",
+      "title": "A Murder at the End of the World",
+      "genres": [
+        "Mystery",
+        "Drama"
+      ],
+      "rating": 6.9,
+      "interestLevel": 3
+    },
+    {
+      "id": "ts5",
+      "title": "For All Mankind",
+      "genres": [
+        "Drama",
+        "Science Fiction"
+      ],
+      "rating": 8.1,
+      "interestLevel": 4
+    },
+    {
+      "id": "ts6",
+      "title": "Ahsoka",
+      "genres": [
+        "Science Fiction",
+        "Adventure"
+      ],
+      "rating": 7.1,
+      "interestLevel": 2
+    },
+    {
+      "id": "ts7",
+      "title": "The Acolyte",
+      "genres": [
+        "Science Fiction",
+        "Action"
+      ],
+      "rating": 6.5,
+      "interestLevel": 2
+    }
+  ],
+  "tvWatched": [
+    {
+      "id": "tw1",
+      "title": "Breaking Bad",
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
+      "rating": 9.5,
+      "personalRating": 10,
+      "completed": "2023-08-15"
+    },
+    {
+      "id": "tw2",
+      "title": "Better Call Saul",
+      "genres": [
+        "Crime",
+        "Drama"
+      ],
+      "rating": 8.9,
+      "personalRating": 9.2,
+      "completed": "2024-04-02"
+    },
+    {
+      "id": "tw3",
+      "title": "The Leftovers",
+      "genres": [
+        "Drama",
+        "Mystery"
+      ],
+      "rating": 8.8,
+      "personalRating": 9.0,
+      "completed": "2023-12-12"
+    },
+    {
+      "id": "tw4",
+      "title": "Dark",
+      "genres": [
+        "Science Fiction",
+        "Thriller"
+      ],
+      "rating": 8.7,
+      "personalRating": 9.1,
+      "completed": "2023-10-01"
+    },
+    {
+      "id": "tw5",
+      "title": "Ted Lasso",
+      "genres": [
+        "Comedy",
+        "Drama"
+      ],
+      "rating": 8.8,
+      "personalRating": 8.4,
+      "completed": "2024-02-05"
+    },
+    {
+      "id": "tw6",
+      "title": "Stranger Things",
+      "genres": [
+        "Science Fiction",
+        "Horror"
+      ],
+      "rating": 8.7,
+      "personalRating": 8.0,
+      "completed": "2023-09-20"
+    }
+  ]
+}
