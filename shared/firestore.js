@@ -1,3 +1,7 @@
+if (!('FIRESTORE_ENABLE_TRACING' in process.env)) {
+  process.env.FIRESTORE_ENABLE_TRACING = 'false';
+}
+
 const admin = require('firebase-admin');
 
 let firestore = null;
