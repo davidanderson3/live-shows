@@ -9,6 +9,8 @@ const NEARBY_RESULTS_INCREMENT = 40;
 const YELP_MAX_RADIUS_MILES = 25;
 const NEARBY_RADIUS_STEPS_MILES = [null, YELP_MAX_RADIUS_MILES];
 const MIN_NEARBY_RESULTS_THRESHOLD = 20;
+const METERS_PER_MILE = 1609.34;
+const MIN_NEARBY_DISTANCE_VARIETY_MILES = 5;
 
 let initialized = false;
 let mapInstance = null;
@@ -619,6 +621,31 @@ function computeDistanceFromUser(rest) {
   const lon = parseCoordinate(rest.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   return computeHaversineDistanceMeters(userLocation.latitude, userLocation.longitude, lat, lon);
+}
+
+function metersToMiles(value) {
+  if (!Number.isFinite(value)) return NaN;
+  return value / METERS_PER_MILE;
+}
+
+function computeMaxDistanceMilesFromUser(restaurants = []) {
+  if (!Array.isArray(restaurants) || !restaurants.length) return null;
+  if (!userLocation) return null;
+  let maxMeters = null;
+  restaurants.forEach(rest => {
+    const distanceMeters = computeDistanceFromUser(rest);
+    if (!Number.isFinite(distanceMeters)) return;
+    if (maxMeters === null || distanceMeters > maxMeters) {
+      maxMeters = distanceMeters;
+    }
+  });
+  return Number.isFinite(maxMeters) ? metersToMiles(maxMeters) : null;
+}
+
+function needsDistanceVariety(restaurants = []) {
+  const maxDistanceMiles = computeMaxDistanceMilesFromUser(restaurants);
+  if (!Number.isFinite(maxDistanceMiles)) return false;
+  return maxDistanceMiles < MIN_NEARBY_DISTANCE_VARIETY_MILES;
 }
 
 function normalizeRestaurant(item) {
@@ -1677,10 +1704,13 @@ async function loadNearbyRestaurants(container) {
     let data = await fetchRestaurants({ ...fetchOptions, limit: initialLimit });
     appendResults(data);
 
-    while (
-      aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD &&
-      canExpandNearbyRadius()
-    ) {
+    const shouldExpandRadius = () => {
+      if (!canExpandNearbyRadius()) return false;
+      if (aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD) return true;
+      return needsDistanceVariety(aggregatedResults);
+    };
+
+    while (shouldExpandRadius()) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
       const nextRadius = advanceNearbyRadius();
       const nextOptions =
@@ -1692,7 +1722,12 @@ async function loadNearbyRestaurants(container) {
       appendResults(data);
     }
 
-    if (aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD && city) {
+    const shouldFallbackToCity =
+      Boolean(city) &&
+      (aggregatedResults.length < MIN_NEARBY_RESULTS_THRESHOLD ||
+        needsDistanceVariety(aggregatedResults));
+
+    if (shouldFallbackToCity) {
       renderMessage(targetContainer, 'Searching for more restaurants…');
       const fallbackOptions = { city, skipCoordinates: true };
       const cityResults = await fetchRestaurants({ ...fallbackOptions, limit: initialLimit });
