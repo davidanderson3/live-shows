@@ -49,6 +49,14 @@ const EVENTBRITE_CACHE_COLLECTION = 'eventbriteCache';
 const SPOONACULAR_CACHE_COLLECTION = 'recipeCache';
 const SPOONACULAR_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 const DEFAULT_MOVIE_LIMIT = 20;
+const OMDB_BASE_URL = 'https://www.omdbapi.com/';
+const OMDB_API_KEY =
+  process.env.OMDB_API_KEY ||
+  process.env.OMDB_KEY ||
+  process.env.OMDB_TOKEN ||
+  '';
+const OMDB_CACHE_COLLECTION = 'omdbRatings';
+const OMDB_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 
 function resolveTmdbApiKey() {
   return (
@@ -112,6 +120,100 @@ function normalizePositiveInteger(value, { min = 1, max = Number.MAX_SAFE_INTEGE
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   const clamped = Math.min(Math.max(parsed, min), max);
   return clamped;
+}
+
+function parseOmdbPercent(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.endsWith('%') ? raw.slice(0, -1) : raw;
+  const num = Number.parseFloat(normalized);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseOmdbScore(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseOmdbImdbRating(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  const clamped = Math.max(0, Math.min(10, num));
+  return Math.round(clamped * 10) / 10;
+}
+
+function sanitizeOmdbString(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed;
+}
+
+function buildOmdbCacheKeyParts({ imdbId, title, year, type }) {
+  const parts = ['omdb'];
+  const normalizedType = typeof type === 'string' && type ? type.toLowerCase() : 'any';
+  parts.push(`type:${normalizedType}`);
+  if (imdbId) {
+    parts.push(`imdb:${imdbId.toLowerCase()}`);
+  } else if (title) {
+    parts.push(`title:${title.toLowerCase()}`);
+  } else {
+    parts.push('title:');
+  }
+  if (year) {
+    parts.push(`year:${year}`);
+  } else {
+    parts.push('year:');
+  }
+  return parts;
+}
+
+function normalizeOmdbPayload(data, { type, requestedTitle, requestedYear }) {
+  if (!data || typeof data !== 'object') return null;
+  const ratingsArray = Array.isArray(data.Ratings) ? data.Ratings : [];
+  const ratingMap = new Map();
+  ratingsArray.forEach(entry => {
+    if (!entry || typeof entry.Source !== 'string') return;
+    const key = entry.Source.trim().toLowerCase();
+    if (!key) return;
+    ratingMap.set(key, entry.Value);
+  });
+
+  const rottenTomatoes = parseOmdbPercent(
+    ratingMap.get('rotten tomatoes') ?? ratingMap.get('rottentomatoes')
+  );
+  const metacritic = parseOmdbScore(data.Metascore ?? ratingMap.get('metacritic'));
+  const imdb = parseOmdbImdbRating(
+    data.imdbRating ?? ratingMap.get('internet movie database') ?? ratingMap.get('imdb')
+  );
+
+  const imdbId = sanitizeOmdbString(data.imdbID);
+  const title = sanitizeOmdbString(data.Title) || sanitizeOmdbString(requestedTitle);
+  const year = sanitizeOmdbString(data.Year) || sanitizeOmdbString(requestedYear);
+
+  const payload = {
+    source: 'omdb',
+    ratings: {
+      rottenTomatoes: rottenTomatoes ?? null,
+      metacritic: metacritic ?? null,
+      imdb: imdb ?? null
+    },
+    imdbId: imdbId || null,
+    title: title || null,
+    year: year || null,
+    type: typeof type === 'string' && type ? type : null,
+    fetchedAt: new Date().toISOString()
+  };
+
+  return payload;
 }
 
 function yelpCacheKeyParts({ city, latitude, longitude, cuisine, limit, radiusMiles }) {
@@ -923,6 +1025,24 @@ app.get('/api/restaurants', async (req, res) => {
 const EVENTBRITE_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 const EVENTBRITE_CACHE_MAX_ENTRIES = 200;
 
+const FALLBACK_EVENTBRITE_PATH = path.join(
+  __dirname,
+  'data',
+  'eventbrite-fallback.json'
+);
+
+let fallbackEventTemplates = [];
+try {
+  const text = fs.readFileSync(FALLBACK_EVENTBRITE_PATH, 'utf8');
+  const parsed = JSON.parse(text);
+  if (Array.isArray(parsed)) {
+    fallbackEventTemplates = parsed.filter(Boolean);
+  }
+} catch (err) {
+  console.warn('Unable to load Eventbrite fallback templates', err.message);
+  fallbackEventTemplates = [];
+}
+
 const eventbriteCache = new Map();
 
 function normalizeCoordinate(value, digits = 3) {
@@ -1236,6 +1356,35 @@ app.get('/api/eventbrite', async (req, res) => {
     }
 
     if (!successfulSegment) {
+      const curated = fallbackEventsFor({
+        latitude,
+        longitude,
+        radiusMiles,
+        startDate: normalizedStart,
+        endDate
+      });
+
+      if (curated.length > 0) {
+        segmentSummaries.push({
+          key: 'curated',
+          description: 'Curated highlights',
+          ok: true,
+          fallback: true,
+          total: curated.length
+        });
+
+        res.status(200).json({
+          events: curated,
+          segments: segmentSummaries,
+          generatedAt: new Date().toISOString(),
+          fallback: {
+            source: 'curated-playlist',
+            total: curated.length
+          }
+        });
+        return;
+      }
+
       res.status(502).json({ error: 'failed', segments: segmentSummaries });
       return;
     }
@@ -1301,8 +1450,124 @@ LIMIT 10`;
         properties: {
           name: b.cityLabel?.value || '',
           population: b.population ? Number(b.population.value) : null
-        }
+  }
+};
+
+function parseTimeParts(value) {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Math.min(Math.max(Number.parseInt(match[1], 10), 0), 23);
+  const minutes = Math.min(Math.max(Number.parseInt(match[2], 10), 0), 59);
+  return { hours, minutes };
+}
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  if (
+    !Number.isFinite(lat1) ||
+    !Number.isFinite(lon1) ||
+    !Number.isFinite(lat2) ||
+    !Number.isFinite(lon2)
+  ) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const R = 3958.8;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function buildFallbackStart(dateString, timeString) {
+  const parts = parseTimeParts(timeString);
+  const safeDate = typeof dateString === 'string' && dateString ? dateString : toDateString(new Date());
+  if (!parts) {
+    const fallbackLocal = `${safeDate}T19:00:00`;
+    return { local: fallbackLocal, utc: `${safeDate}T19:00:00Z` };
+  }
+  const hours = String(parts.hours).padStart(2, '0');
+  const minutes = String(parts.minutes).padStart(2, '0');
+  const local = `${safeDate}T${hours}:${minutes}:00`;
+  const parsed = new Date(local);
+  const utc = Number.isNaN(parsed.getTime()) ? `${safeDate}T${hours}:${minutes}:00Z` : parsed.toISOString();
+  return { local, utc };
+}
+
+function fallbackEventsFor({ latitude, longitude, radiusMiles, startDate, endDate }) {
+  if (!fallbackEventTemplates.length) {
+    return [];
+  }
+
+  const startBoundary = new Date(`${startDate}T00:00:00Z`);
+  const endBoundary = new Date(`${endDate}T23:59:59Z`);
+  if (Number.isNaN(startBoundary.getTime()) || Number.isNaN(endBoundary.getTime())) {
+    return [];
+  }
+
+  const effectiveRadius = Number.isFinite(radiusMiles) && radiusMiles > 0 ? Math.min(Math.max(radiusMiles, 25), 300) : 120;
+
+  const results = fallbackEventTemplates
+    .map(template => {
+      const offsetDays = Number.isFinite(template.offsetDays) ? Number(template.offsetDays) : 0;
+      const eventDateString = addDays(startDate, offsetDays) || startDate;
+      const eventDate = new Date(`${eventDateString}T00:00:00Z`);
+      if (Number.isNaN(eventDate.getTime())) {
+        return null;
+      }
+      if (eventDate < startBoundary || eventDate > endBoundary) {
+        return null;
+      }
+      const venue = template.venue || {};
+      const eventDistance = haversineMiles(
+        latitude,
+        longitude,
+        Number.parseFloat(venue.latitude),
+        Number.parseFloat(venue.longitude)
+      );
+      if (eventDistance > effectiveRadius + 15) {
+        return null;
+      }
+      const startInfo = buildFallbackStart(eventDateString, template.startTime);
+      const curatedNote = 'Curated highlight while Eventbrite is unavailable.';
+      const summary = template.summary
+        ? `${template.summary.trim()} ${curatedNote}`
+        : curatedNote;
+      return {
+        id: `fallback::${template.id || Math.random().toString(36).slice(2)}`,
+        name: { text: template.title || 'Live show' },
+        summary,
+        url: template.url || '',
+        start: startInfo,
+        venue: {
+          name: venue.name || '',
+          address: {
+            city: venue.city || '',
+            region: venue.region || ''
+          }
+        },
+        segment: template.segment || 'music',
+        __distance: eventDistance
       };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const startDiff = new Date(a.start.utc).getTime() - new Date(b.start.utc).getTime();
+      if (startDiff !== 0) return startDiff;
+      return (a.__distance || Number.POSITIVE_INFINITY) - (b.__distance || Number.POSITIVE_INFINITY);
+    })
+    .map(event => {
+      delete event.__distance;
+      return event;
+    });
+
+  return results;
+}
     })
     .filter(Boolean);
   return { type: 'FeatureCollection', features };
@@ -1475,6 +1740,111 @@ app.get('/api/movies', async (req, res) => {
   } catch (err) {
     console.error('Failed to fetch movies', err);
     res.status(500).json({ error: 'Failed to fetch movies' });
+  }
+});
+
+app.get('/api/movie-ratings', async (req, res) => {
+  const imdbId = sanitizeOmdbString(req.query.imdbId || req.query.imdbID);
+  const title = sanitizeOmdbString(req.query.title);
+  const year = sanitizeOmdbString(req.query.year);
+  const typeParam = sanitizeOmdbString(req.query.type).toLowerCase();
+  const allowedTypes = new Set(['movie', 'series', 'episode']);
+  const type = allowedTypes.has(typeParam) ? typeParam : '';
+  const forceRefresh = parseBooleanQuery(req.query.refresh);
+  const queryApiKey = sanitizeOmdbString(req.query.apiKey);
+  const apiKey = queryApiKey || OMDB_API_KEY;
+
+  if (!apiKey) {
+    return res.status(400).json({
+      error: 'omdb_key_missing',
+      message: 'OMDb API key is not configured on the server.'
+    });
+  }
+
+  if (!imdbId && !title) {
+    return res.status(400).json({
+      error: 'missing_lookup',
+      message: 'Provide an imdbId or title to look up critic scores.'
+    });
+  }
+
+  const cacheParts = buildOmdbCacheKeyParts({
+    imdbId,
+    title,
+    year,
+    type: type || 'any'
+  });
+
+  if (!forceRefresh) {
+    const cached = await readCachedResponse(OMDB_CACHE_COLLECTION, cacheParts, OMDB_CACHE_TTL_MS);
+    if (sendCachedResponse(res, cached)) {
+      return;
+    }
+  }
+
+  const params = new URLSearchParams();
+  params.set('apikey', apiKey);
+  if (imdbId) {
+    params.set('i', imdbId);
+  } else if (title) {
+    params.set('t', title);
+  }
+  if (year) params.set('y', year);
+  if (type) params.set('type', type);
+  params.set('plot', 'short');
+  params.set('r', 'json');
+
+  try {
+    const response = await fetch(`${OMDB_BASE_URL}?${params.toString()}`);
+    if (!response.ok) {
+      const status = response.status || 502;
+      return res.status(status).json({
+        error: 'omdb_request_failed',
+        message: `OMDb request failed with status ${status}`
+      });
+    }
+
+    const data = await response.json();
+    if (!data || data.Response === 'False') {
+      const message = typeof data?.Error === 'string' ? data.Error : 'OMDb returned no results';
+      const normalized = message.toLowerCase();
+      if (normalized.includes('api key')) {
+        return res.status(401).json({ error: 'omdb_invalid_key', message });
+      }
+      return res.status(404).json({ error: 'omdb_not_found', message });
+    }
+
+    const payload = normalizeOmdbPayload(data, {
+      type: type || null,
+      requestedTitle: title,
+      requestedYear: year
+    });
+
+    if (!payload) {
+      return res.status(404).json({
+        error: 'omdb_not_found',
+        message: 'OMDb did not return critic scores for this title.'
+      });
+    }
+
+    const body = JSON.stringify(payload);
+    await writeCachedResponse(OMDB_CACHE_COLLECTION, cacheParts, {
+      body,
+      metadata: {
+        imdbId: payload.imdbId || imdbId || null,
+        title: payload.title || title || null,
+        year: payload.year || year || null,
+        type: payload.type || type || null
+      }
+    });
+
+    res.json(payload);
+  } catch (err) {
+    console.error('Failed to fetch critic scores from OMDb', err);
+    res.status(500).json({
+      error: 'omdb_request_failed',
+      message: 'Failed to fetch critic scores.'
+    });
   }
 });
 

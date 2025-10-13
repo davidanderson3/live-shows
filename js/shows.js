@@ -183,7 +183,15 @@ function setDebugInfo(info) {
     return;
   }
 
-  const { requestUrl, response, responseText, error, fallbackUrl, primaryError } = info;
+  const {
+    requestUrl,
+    response,
+    responseText,
+    error,
+    fallbackUrl,
+    primaryError,
+    fallbackInfo
+  } = info;
   const hasRequest = typeof requestUrl === 'string' && requestUrl.length > 0;
   const hasResponse =
     response && typeof response === 'object' && Object.keys(response).length > 0;
@@ -222,6 +230,14 @@ function setDebugInfo(info) {
 
   if (error) {
     sections.push(`Error:\n${error}`);
+  }
+
+  if (fallbackInfo) {
+    try {
+      sections.push(`Fallback details:\n${JSON.stringify(fallbackInfo, null, 2)}`);
+    } catch (err) {
+      sections.push('Fallback details: [unserializable]');
+    }
   }
 
   if (hasResponse) {
@@ -273,6 +289,11 @@ function createEventCard(event) {
   const card = document.createElement('article');
   card.className = 'show-card';
 
+  const isCuratedFallback = typeof event?.id === 'string' && event.id.startsWith('fallback::');
+  if (isCuratedFallback) {
+    card.dataset.fallback = 'true';
+  }
+
   const content = document.createElement('div');
   content.className = 'show-card__content';
   card.appendChild(content);
@@ -280,6 +301,13 @@ function createEventCard(event) {
   const header = document.createElement('div');
   header.className = 'show-card__header';
   content.appendChild(header);
+
+  if (isCuratedFallback) {
+    const badge = document.createElement('span');
+    badge.className = 'show-card__badge';
+    badge.textContent = 'Curated highlight';
+    header.appendChild(badge);
+  }
 
   const title = document.createElement('h3');
   title.className = 'show-card__title';
@@ -540,11 +568,29 @@ async function discoverNearbyShows() {
       response: result.raw,
       responseText: result.responseText,
       fallbackUrl: result.fallbackUrl,
-      primaryError: result.primaryError || null
+      primaryError: result.primaryError || null,
+      fallbackInfo: result.raw?.fallback || null
     });
 
+    const fallbackMeta = result.raw?.fallback;
+    const usedCuratedFallback = Boolean(fallbackMeta && fallbackMeta.source === 'curated-playlist');
+
     if (result.events.length > 0) {
-      setStatus(`Found ${result.events.length} upcoming event${result.events.length === 1 ? '' : 's'}.`);
+      if (usedCuratedFallback) {
+        setStatus(
+          `Eventbrite is offline, so here are ${result.events.length} curated local highlight${
+            result.events.length === 1 ? '' : 's'
+          }.`,
+          'warning'
+        );
+      } else {
+        setStatus(`Found ${result.events.length} upcoming event${result.events.length === 1 ? '' : 's'}.`);
+      }
+    } else if (usedCuratedFallback) {
+      setStatus(
+        'Eventbrite is unavailable and we do not have curated shows near you yet. Try widening the radius and searching again soon.',
+        'warning'
+      );
     } else {
       setStatus('No music or comedy events found near you right now.', 'warning');
     }

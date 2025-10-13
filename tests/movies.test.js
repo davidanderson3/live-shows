@@ -182,7 +182,7 @@ describe('initMoviesPanel', () => {
     expect(metaText).toContain('Cast: Lead Star, Supporting Actor');
 
     const buttons = Array.from(card.querySelectorAll('button')).map(b => b.textContent);
-    expect(buttons).toEqual(['Watched Already', 'Not Interested', 'Interested']);
+    expect(buttons).toEqual(['Watched Already', 'Not Interested', 'Interested', 'Fetch scores']);
 
     const img = card.querySelector('img');
     expect(img?.src).toContain('https://image.tmdb.org/t/p/w200/poster.jpg');
@@ -192,6 +192,75 @@ describe('initMoviesPanel', () => {
     expect(statusText).toContain('using the movie cache');
     expect(statusText).toContain('12 matches your current filters');
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetches critic scores on demand', async () => {
+    const dom = buildDom();
+    attachWindow(dom);
+    window.tmdbApiKey = 'TEST_KEY';
+
+    const baseMovie = {
+      id: 1,
+      title: 'Sample Movie',
+      release_date: '2024-01-01',
+      vote_average: 7.5,
+      vote_count: 120,
+      overview: 'An exciting film.',
+      genre_ids: [28],
+      poster_path: '/poster.jpg'
+    };
+
+    const cachedResponse = {
+      results: Array.from({ length: 12 }, (_, index) => ({
+        ...baseMovie,
+        id: index + 1,
+        title: index === 0 ? 'Sample Movie' : `Sample Movie ${index + 1}`
+      })),
+      genres: { 28: 'Action' },
+      credits: {}
+    };
+
+    const ratingsResponse = {
+      ratings: { rottenTomatoes: 94, metacritic: 81, imdb: 8.7 },
+      fetchedAt: '2024-03-01T00:00:00.000Z',
+      source: 'omdb',
+      imdbId: 'tt1234567',
+      title: 'Sample Movie',
+      year: '2024',
+      type: 'movie'
+    };
+
+    configureFetchResponses([
+      { ok: true, json: () => Promise.resolve(cachedResponse) },
+      { ok: true, json: () => Promise.resolve(ratingsResponse) }
+    ]);
+
+    await initMoviesPanel();
+
+    let card = document.querySelector('#movieList li');
+    expect(card).not.toBeNull();
+
+    let criticButton = Array.from(card.querySelectorAll('button')).find(
+      btn => btn.textContent === 'Fetch scores'
+    );
+    expect(criticButton).toBeTruthy();
+
+    criticButton.click();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    card = document.querySelector('#movieList li');
+    expect(card).not.toBeNull();
+    const metaText = card.querySelector('.movie-meta')?.textContent || '';
+    expect(metaText).toContain('Rotten Tomatoes: 94%');
+    expect(metaText).toContain('Metacritic: 81');
+    expect(metaText).toContain('IMDb: 8.7');
+    const ratingCall = global.fetch.mock.calls.find(call =>
+      String(call?.[0] ?? '').includes('/api/movie-ratings')
+    );
+    expect(ratingCall).toBeTruthy();
   });
 
   it('falls back to TMDB when the cache cannot satisfy the request', async () => {
@@ -933,11 +1002,15 @@ describe('initMoviesPanel', () => {
     expect(watchedMeta).toContain('Average Score: 9.1');
     expect(watchedMeta).toContain('Release Date: 1999-07-16');
 
-    const removeBtn = document.querySelector('#watchedMoviesList button');
+    const removeBtn = Array.from(document.querySelectorAll('#watchedMoviesList button')).find(
+      b => b.textContent === 'Remove'
+    );
     removeBtn?.click();
     await new Promise(resolve => setTimeout(resolve, 0));
     await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
 
+    expect(document.querySelector('#watchedMoviesList').textContent).not.toContain('Classic Film');
     expect(document.querySelector('#movieList').textContent).toContain('Classic Film');
   });
 

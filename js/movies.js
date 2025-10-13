@@ -87,6 +87,10 @@ const handlers = {
   handleChange: null
 };
 
+const criticScoreStateById = new Map();
+const restoredMoviesById = new Map();
+const CRITIC_SCORE_TYPE = 'movie';
+
 const STATUS_TONE_CLASSES = Object.freeze({
   info: 'movie-status--info',
   success: 'movie-status--success',
@@ -139,6 +143,387 @@ function summarizeError(err) {
     return `Request failed with status ${err.status}`;
   }
   return 'Unknown error';
+}
+
+function getMovieCacheKey(movie) {
+  if (!movie || typeof movie !== 'object') return null;
+  if (movie.id != null) {
+    return `tmdb:${movie.id}`;
+  }
+  const imdbIdRaw =
+    (typeof movie.imdb_id === 'string' && movie.imdb_id) ||
+    (typeof movie.imdbId === 'string' && movie.imdbId) ||
+    '';
+  const imdbId = imdbIdRaw.trim();
+  if (imdbId) {
+    return `imdb:${imdbId}`;
+  }
+  const titleSource =
+    (typeof movie.title === 'string' && movie.title.trim()) ||
+    (typeof movie.name === 'string' && movie.name.trim()) ||
+    '';
+  if (!titleSource) return null;
+  const normalizedTitle = titleSource.toLowerCase();
+  let year = '';
+  if (typeof movie.release_date === 'string' && movie.release_date.trim()) {
+    const parts = movie.release_date.trim().split('-');
+    if (parts[0] && /^\d{4}$/.test(parts[0])) {
+      year = parts[0];
+    }
+  }
+  return `title:${normalizedTitle}|year:${year}`;
+}
+
+function parseCriticPercent(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.endsWith('%') ? raw.slice(0, -1) : raw;
+  const num = Number.parseFloat(normalized);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseCriticScore(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseCriticImdb(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  const clamped = Math.max(0, Math.min(10, num));
+  return Math.round(clamped * 10) / 10;
+}
+
+function normalizeCriticScoresObject(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const ratings =
+    (raw.ratings && typeof raw.ratings === 'object' && raw.ratings) ||
+    raw;
+  const rottenTomatoes = parseCriticPercent(
+    ratings.rottenTomatoes ??
+      ratings.rotten_tomatoes ??
+      ratings.tomatoMeter ??
+      ratings.tomato_meter ??
+      ratings.rotten ??
+      ratings.tomato
+  );
+  const metacritic = parseCriticScore(
+    ratings.metacritic ?? ratings.Metascore ?? ratings.meta ?? raw.Metascore ?? raw.metacritic
+  );
+  const imdb = parseCriticImdb(
+    ratings.imdb ?? ratings.imdbRating ?? raw.imdbRating ?? ratings.imdb_score ?? ratings.imdbScore
+  );
+
+  const fetchedAtSource =
+    raw.fetchedAt ??
+    raw.fetched_at ??
+    (raw.metadata && raw.metadata.fetchedAt) ??
+    (raw.metadata && raw.metadata.fetched_at) ??
+    ratings.fetchedAt ??
+    ratings.fetched_at;
+  let fetchedAt = null;
+  if (typeof fetchedAtSource === 'string' && fetchedAtSource.trim()) {
+    const parsed = new Date(fetchedAtSource);
+    if (!Number.isNaN(parsed.getTime())) {
+      fetchedAt = parsed.toISOString();
+    }
+  } else if (typeof fetchedAtSource === 'number' && Number.isFinite(fetchedAtSource)) {
+    const parsed = new Date(fetchedAtSource);
+    if (!Number.isNaN(parsed.getTime())) {
+      fetchedAt = parsed.toISOString();
+    }
+  }
+  if (!fetchedAt) {
+    fetchedAt = new Date().toISOString();
+  }
+
+  const source =
+    (typeof raw.source === 'string' && raw.source.trim()) ||
+    (typeof raw.provider === 'string' && raw.provider.trim()) ||
+    'omdb';
+  const imdbIdValue =
+    (typeof raw.imdbId === 'string' && raw.imdbId.trim()) ||
+    (typeof raw.imdbID === 'string' && raw.imdbID.trim()) ||
+    null;
+  const titleValue =
+    (typeof raw.title === 'string' && raw.title.trim()) ||
+    (typeof raw.Title === 'string' && raw.Title.trim()) ||
+    null;
+  const yearValue =
+    (typeof raw.year === 'string' && raw.year.trim()) ||
+    (typeof raw.Year === 'string' && raw.Year.trim()) ||
+    null;
+  const typeValue =
+    (typeof raw.type === 'string' && raw.type.trim()) ||
+    CRITIC_SCORE_TYPE;
+
+  return {
+    rottenTomatoes: rottenTomatoes ?? null,
+    metacritic: metacritic ?? null,
+    imdb: imdb ?? null,
+    fetchedAt,
+    source,
+    imdbId: imdbIdValue,
+    title: titleValue,
+    year: yearValue,
+    type: typeValue
+  };
+}
+
+function normalizeCriticScoresResponse(data) {
+  if (!data || typeof data !== 'object') return null;
+  return normalizeCriticScoresObject({
+    ...data,
+    ratings: data.ratings && typeof data.ratings === 'object' ? data.ratings : data
+  });
+}
+
+function getCriticScoreState(movie) {
+  if (!movie) return { status: 'idle', data: null };
+  if (movie.criticScoresState && movie.criticScoresState.status) {
+    return movie.criticScoresState;
+  }
+  const key = getMovieCacheKey(movie);
+  const existingMovieScores = movie.criticScores
+    ? normalizeCriticScoresObject(movie.criticScores)
+    : null;
+  if (key && criticScoreStateById.has(key)) {
+    const state = criticScoreStateById.get(key);
+    if (state?.data && !existingMovieScores) {
+      movie.criticScores = state.data;
+    }
+    movie.criticScoresState = state;
+    return state;
+  }
+  if (existingMovieScores) {
+    const state = { status: 'loaded', data: existingMovieScores };
+    if (key) {
+      criticScoreStateById.set(key, state);
+    }
+    movie.criticScores = existingMovieScores;
+    movie.criticScoresState = state;
+    return state;
+  }
+  return { status: 'idle', data: null };
+}
+
+function setCriticScoreState(movie, state) {
+  if (!movie) return;
+  const key = getMovieCacheKey(movie);
+  const existing = key ? criticScoreStateById.get(key) : null;
+  const normalizedData = state?.data ? normalizeCriticScoresObject(state.data) : null;
+  const existingMovieScores = movie.criticScores
+    ? normalizeCriticScoresObject(movie.criticScores)
+    : null;
+  const fallbackData = normalizedData || existing?.data || existingMovieScores || null;
+  const nextState = {
+    status: state?.status || 'idle',
+    data: null
+  };
+
+  if (nextState.status === 'loaded') {
+    nextState.data = normalizedData || fallbackData;
+    if (nextState.data) {
+      movie.criticScores = nextState.data;
+    }
+  } else if (nextState.status === 'loading') {
+    nextState.data = normalizedData || fallbackData;
+  } else if (nextState.status === 'error') {
+    nextState.data = fallbackData;
+  } else {
+    nextState.data = normalizedData || fallbackData;
+  }
+
+  if (state?.error) {
+    nextState.error = state.error;
+  }
+
+  movie.criticScoresState = nextState;
+  if (key) {
+    criticScoreStateById.set(key, nextState);
+  }
+}
+
+function buildCriticLookup(movie) {
+  if (!movie) return null;
+  const imdbIdRaw =
+    (typeof movie.imdb_id === 'string' && movie.imdb_id) ||
+    (typeof movie.imdbId === 'string' && movie.imdbId) ||
+    '';
+  const imdbId = imdbIdRaw.trim();
+  const titleSource =
+    (typeof movie.title === 'string' && movie.title.trim()) ||
+    (typeof movie.name === 'string' && movie.name.trim()) ||
+    '';
+  let year = '';
+  if (typeof movie.release_date === 'string' && movie.release_date.trim()) {
+    const match = movie.release_date.trim().match(/^(\d{4})/);
+    if (match) {
+      year = match[1];
+    }
+  }
+  if (!imdbId && !titleSource) {
+    return null;
+  }
+  return {
+    imdbId: imdbId || null,
+    title: titleSource || null,
+    year: year || null,
+    type: CRITIC_SCORE_TYPE
+  };
+}
+
+function canRequestCriticScores(movie) {
+  const lookup = buildCriticLookup(movie);
+  return Boolean(lookup && (lookup.imdbId || lookup.title));
+}
+
+function describeCriticScoresState(state) {
+  if (!state || state.status === 'idle') {
+    return 'Not fetched yet';
+  }
+  if (state.status === 'loading') {
+    return 'Fetching critic scores...';
+  }
+  if (state.status === 'error') {
+    return state.error || 'Critic scores unavailable';
+  }
+  if (state.status === 'loaded') {
+    const data = state.data || {};
+    const parts = [];
+    if (Number.isFinite(data.rottenTomatoes)) {
+      parts.push(`Rotten Tomatoes: ${Math.round(data.rottenTomatoes)}%`);
+    }
+    if (Number.isFinite(data.metacritic)) {
+      parts.push(`Metacritic: ${Math.round(data.metacritic)}`);
+    }
+    if (Number.isFinite(data.imdb)) {
+      parts.push(`IMDb: ${data.imdb.toFixed(1)}`);
+    }
+    if (!parts.length) {
+      return 'Critic scores unavailable';
+    }
+    return parts.join(' · ');
+  }
+  return 'Critic scores unavailable';
+}
+
+function getCriticScoresButtonLabel(state) {
+  if (!state || state.status === 'idle') return 'Fetch scores';
+  if (state.status === 'loading') return 'Fetching...';
+  if (state.status === 'loaded') return 'Refresh scores';
+  if (state.status === 'error') return 'Try again';
+  return 'Fetch scores';
+}
+
+async function requestCriticScores(movie, { force = false } = {}) {
+  if (!movie) return null;
+  const state = getCriticScoreState(movie);
+  if (!force && (state.status === 'loading' || state.status === 'loaded')) {
+    return state.data || null;
+  }
+
+  const lookup = buildCriticLookup(movie);
+  if (!lookup) {
+    setCriticScoreState(movie, {
+      status: 'error',
+      error: 'Not enough information to fetch critic scores.'
+    });
+    refreshUI();
+    return null;
+  }
+
+  setCriticScoreState(movie, {
+    status: 'loading',
+    data: state.data || null,
+    error: state.error
+  });
+  refreshUI();
+
+  try {
+    const params = new URLSearchParams();
+    if (lookup.imdbId) params.set('imdbId', lookup.imdbId);
+    if (lookup.title) params.set('title', lookup.title);
+    if (lookup.year) params.set('year', lookup.year);
+    if (lookup.type) params.set('type', lookup.type);
+    const url = `${buildMoviesApiUrl('/api/movie-ratings')}?${params.toString()}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData?.message) {
+          message = errorData.message;
+        } else if (errorData?.error) {
+          message = errorData.error;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+    const data = await response.json();
+    const normalized = normalizeCriticScoresResponse(data);
+    if (!normalized) {
+      setCriticScoreState(movie, {
+        status: 'error',
+        error: 'Critic scores are unavailable for this title.'
+      });
+      refreshUI();
+      return null;
+    }
+    setCriticScoreState(movie, { status: 'loaded', data: normalized });
+    refreshUI();
+    return normalized;
+  } catch (err) {
+    setCriticScoreState(movie, {
+      status: 'error',
+      error: summarizeError(err)
+    });
+    refreshUI();
+    return null;
+  }
+}
+
+function appendCriticScoresMeta(metaList, movie) {
+  if (!metaList || !movie) return;
+  const item = document.createElement('li');
+  item.className = 'movie-meta__item movie-meta__critics';
+
+  const label = document.createElement('span');
+  label.className = 'movie-meta__label';
+  label.textContent = 'Critic scores:';
+  item.appendChild(label);
+
+  const state = getCriticScoreState(movie);
+  const value = document.createElement('span');
+  value.className = 'movie-meta__value movie-meta__critics-value';
+  value.textContent = describeCriticScoresState(state);
+  item.appendChild(value);
+
+  if (canRequestCriticScores(movie)) {
+    const button = makeActionButton(getCriticScoresButtonLabel(state), () => {
+      requestCriticScores(movie, {
+        force: state.status === 'loaded' || state.status === 'error'
+      });
+    });
+    button.classList.add('movie-action--inline');
+    if (state.status === 'loading') {
+      button.disabled = true;
+    }
+    item.appendChild(button);
+  }
+
+  metaList.appendChild(item);
 }
 
 function updateFeedStatus(message, { tone = 'info', showSpinner = false } = {}) {
@@ -992,7 +1377,7 @@ async function callTmdbProxy(endpoint, params = {}) {
 }
 
 function summarizeMovie(movie) {
-  return {
+  const summary = {
     id: movie.id,
     title: movie.title || movie.name || '',
     release_date: movie.release_date || '',
@@ -1004,6 +1389,20 @@ function summarizeMovie(movie) {
     topCast: getNameList(movie.topCast).slice(0, 5),
     directors: getNameList(movie.directors).slice(0, 3)
   };
+
+  const criticScores = normalizeCriticScoresObject(movie.criticScores);
+  if (criticScores) {
+    summary.criticScores = criticScores;
+  }
+
+  return summary;
+}
+
+function captureRestoredMovie(movie) {
+  if (!movie || movie.id == null) return null;
+  const summary = summarizeMovie(movie);
+  if (!summary || summary.id == null) return null;
+  return summary;
 }
 
 function makeActionButton(label, handler) {
@@ -1595,6 +1994,7 @@ async function setStatus(movie, status, options = {}) {
   }
   await loadPreferences();
   const id = String(movie.id);
+  restoredMoviesById.delete(id);
   const next = { ...currentPrefs };
   const snapshot = summarizeMovie(movie);
   const entry = next[id] ? { ...next[id] } : {};
@@ -1682,14 +2082,17 @@ async function clearStatus(movieId) {
   delete next[id];
   await savePreferences(next);
   if (removed && removed.movie) {
-    const exists = Array.isArray(currentMovies)
-      ? currentMovies.some(movie => String(movie?.id) === id)
-      : false;
-    if (!exists) {
-      const restored = { ...removed.movie };
-      currentMovies = [restored, ...(Array.isArray(currentMovies) ? currentMovies : [])];
-      currentMovies = applyPriorityOrdering(currentMovies);
-      feedExhausted = false;
+    const restored = captureRestoredMovie(removed.movie);
+    if (restored && restored.id != null) {
+      restoredMoviesById.set(String(restored.id), restored);
+      const exists = Array.isArray(currentMovies)
+        ? currentMovies.some(movie => String(movie?.id) === String(restored.id))
+        : false;
+      if (!exists) {
+        currentMovies = [restored, ...(Array.isArray(currentMovies) ? currentMovies : [])];
+        currentMovies = applyPriorityOrdering(currentMovies);
+        feedExhausted = false;
+      }
     }
   }
   pruneSuppressedMovies();
@@ -1897,6 +2300,7 @@ function renderFeed() {
     appendMeta(metaList, 'Release Date', movie.release_date || 'Unknown');
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
 
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
@@ -2029,6 +2433,7 @@ function renderInterestedList() {
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
     }
@@ -2173,6 +2578,7 @@ function renderWatchedList() {
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
     }
@@ -2295,6 +2701,50 @@ function applyPriorityOrdering(movies) {
       return { ...movie, __priority: priority };
     })
     .sort((a, b) => (b.__priority ?? 0) - (a.__priority ?? 0));
+}
+
+function mergeRestoredMovies(baseMovies) {
+  const list = Array.isArray(baseMovies) ? baseMovies.slice() : [];
+  if (!restoredMoviesById.size) {
+    return list;
+  }
+
+  const existingById = new Map();
+  list.forEach(movie => {
+    if (!movie || movie.id == null) return;
+    const key = String(movie.id);
+    existingById.set(key, movie);
+    const normalized = captureRestoredMovie(movie);
+    if (normalized) {
+      restoredMoviesById.set(key, normalized);
+    }
+  });
+
+  let modified = false;
+  restoredMoviesById.forEach((movie, key) => {
+    if (isMovieSuppressed(key)) {
+      restoredMoviesById.delete(key);
+      return;
+    }
+    if (existingById.has(key)) {
+      return;
+    }
+    const normalized = captureRestoredMovie(movie);
+    if (!normalized) {
+      restoredMoviesById.delete(key);
+      return;
+    }
+    list.push(normalized);
+    existingById.set(key, normalized);
+    modified = true;
+  });
+
+  if (!modified) {
+    return list;
+  }
+
+  const merged = applyPriorityOrdering(list);
+  return merged;
 }
 
 async function fetchDiscoverPageDirect(apiKey, page) {
@@ -2613,6 +3063,15 @@ function normalizeCachedMovie(movie) {
 
   if (!normalized.title && typeof normalized.name === 'string') {
     normalized.title = normalized.name;
+  }
+
+  if (normalized.criticScores) {
+    const scores = normalizeCriticScoresObject(normalized.criticScores);
+    if (scores) {
+      normalized.criticScores = scores;
+    } else {
+      delete normalized.criticScores;
+    }
   }
 
   return normalized;
@@ -2934,7 +3393,8 @@ async function loadMovies({ attemptStart } = {}) {
     if (needsGenreFetch) {
       genres = usingProxy ? await fetchGenreMapFromProxy() : await fetchGenreMapDirect(apiKey);
     }
-    currentMovies = Array.isArray(movies) ? movies : [];
+    const fetchedMovies = Array.isArray(movies) ? movies : [];
+    currentMovies = mergeRestoredMovies(fetchedMovies);
     genreMap = genres || {};
     populateFeedGenreOptions();
     updateFeedFilterInputsFromState();

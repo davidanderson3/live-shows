@@ -26,6 +26,7 @@ The Movies tab is a curated discovery feed for film night:
 - **Personal ratings** – mark any movie as Interested, Watched, or Not Interested. Ratings are clamped to 0–10 with half-point granularity.
 - **Saved list persistence** – lists and ratings are stored both locally and in Firestore so they follow the authenticated user.
 - **TMDB integration** – the UI accepts either a direct TMDB API key or uses the deployed Cloud Function proxy (`/tmdbProxy`) to keep the client keyless.
+- **Critic score lookup** – pull Rotten Tomatoes, Metacritic, and IMDb ratings from the OMDb-backed proxy for both movie and TV titles when you need more context.
 
 ### Live Music
 The Live Music tab now focuses on quick Eventbrite lookups for nearby concerts and comedy shows:
@@ -84,6 +85,7 @@ Create a `.env` in the project root (and optionally `backend/.env`) with the cre
 | `SPOTIFY_CLIENT_ID` | `/api/spotify-client-id` | PKCE client ID for Spotify login. |
 | `EVENTBRITE_API_TOKEN`, `EVENTBRITE_OAUTH_TOKEN`, or `EVENTBRITE_TOKEN` | Eventbrite proxy | Eventbrite personal token used for the Events Search API. |
 | `SPOONACULAR_KEY` | Spoonacular proxy | API key for recipe search. |
+| `OMDB_API_KEY` (or `OMDB_KEY`/`OMDB_TOKEN`) | Movie ratings proxy | OMDb key for Rotten Tomatoes and Metacritic lookups. |
 | `YELP_API_KEY` | Restaurants proxy | Yelp Fusion API key if you do not pass one per request. |
 | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` | Plaid endpoints | Enable financial account linking workflows. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | `/contact` endpoint | Enable contact form email delivery. |

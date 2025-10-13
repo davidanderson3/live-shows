@@ -1,0 +1,104 @@
+[
+  {
+    "id": "moonlit-wharf-jazz",
+    "title": "Moonlit Jazz on the Wharf",
+    "summary": "An open-air waterfront jazz session curated by DC's top horn players.",
+    "url": "https://example.com/events/moonlit-wharf-jazz",
+    "segment": "music",
+    "offsetDays": 1,
+    "startTime": "19:30",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "District Wharf Green",
+      "city": "Washington",
+      "region": "DC",
+      "latitude": 38.8807,
+      "longitude": -77.0186
+    }
+  },
+  {
+    "id": "rooftop-acoustic-clarendon",
+    "title": "Rooftop Acoustic Sessions",
+    "summary": "Stripped-down sets from rotating DMV singer-songwriters atop the Clarendon skyline.",
+    "url": "https://example.com/events/rooftop-acoustic-clarendon",
+    "segment": "music",
+    "offsetDays": 3,
+    "startTime": "18:45",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "The Perch",
+      "city": "Arlington",
+      "region": "VA",
+      "latitude": 38.8822,
+      "longitude": -77.1103
+    }
+  },
+  {
+    "id": "mosaic-indie-night",
+    "title": "Indie Night at Mosaic",
+    "summary": "Mosaic District's courtyard transforms into a pop-up stage for regional indie bands.",
+    "url": "https://example.com/events/mosaic-indie-night",
+    "segment": "music",
+    "offsetDays": 6,
+    "startTime": "20:00",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "Mosaic District",
+      "city": "Fairfax",
+      "region": "VA",
+      "latitude": 38.8634,
+      "longitude": -77.3196
+    }
+  },
+  {
+    "id": "capital-basement-comedy",
+    "title": "Capital Basement Comedy",
+    "summary": "An underground comedy showcase with rising stand-up comics and surprise drop-ins.",
+    "url": "https://example.com/events/capital-basement-comedy",
+    "segment": "comedy",
+    "offsetDays": 2,
+    "startTime": "21:15",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "Capitol Cellar",
+      "city": "Washington",
+      "region": "DC",
+      "latitude": 38.9055,
+      "longitude": -77.0434
+    }
+  },
+  {
+    "id": "songwriters-circle-old-town",
+    "title": "Old Town Songwriters Circle",
+    "summary": "A candle-lit listening room evening with Alexandria's folk storytellers.",
+    "url": "https://example.com/events/songwriters-circle-old-town",
+    "segment": "music",
+    "offsetDays": 5,
+    "startTime": "19:00",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "Lyceum Hall",
+      "city": "Alexandria",
+      "region": "VA",
+      "latitude": 38.8048,
+      "longitude": -77.0469
+    }
+  },
+  {
+    "id": "late-night-laughs-noma",
+    "title": "NoMa Late Night Laughs",
+    "summary": "After-hours comedy with a rotating lineup of improv troupes and storytellers.",
+    "url": "https://example.com/events/late-night-laughs-noma",
+    "segment": "comedy",
+    "offsetDays": 7,
+    "startTime": "22:00",
+    "timezone": "America/New_York",
+    "venue": {
+      "name": "Union Stage Loft",
+      "city": "Washington",
+      "region": "DC",
+      "latitude": 38.9026,
+      "longitude": -77.0077
+    }
+  }
+]

@@ -760,6 +760,12 @@ button:hover {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.show-card[data-fallback='true'] {
+  border-color: #f8d58a;
+  box-shadow: 0 12px 26px rgba(148, 98, 8, 0.18);
+  background: linear-gradient(135deg, rgba(255, 248, 234, 0.7), #ffffff 45%);
+}
+
 .show-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 14px 28px rgba(25, 55, 45, 0.14);
@@ -801,6 +807,19 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+.show-card__badge {
+  align-self: flex-start;
+  background: #fbd390;
+  color: #5a3700;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 2px 6px rgba(90, 55, 0, 0.18);
 }
 
 .show-card__title {
@@ -2728,6 +2747,12 @@ h2 {
   padding: 6px 20px;
 }
 
+.movie-action--inline {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
 @media (max-width: 768px) {
   .calendar-mobile-tabs {
     display: flex;
@@ -3419,6 +3444,25 @@ h2 {
 
 .movie-meta li {
   font-size: 0.85rem;
+}
+
+.movie-meta__critics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.movie-meta__critics .movie-meta__label {
+  font-weight: 600;
+}
+
+.movie-meta__critics .movie-meta__value {
+  flex: 1 1 auto;
+}
+
+.movie-meta__critics .movie-action {
+  flex: 0 0 auto;
 }
 
 .movie-card .button-row button {

@@ -1,5 +1,5 @@
 import { getCurrentUser, awaitAuthUser, db } from './auth.js';
-import { DEFAULT_REMOTE_API_BASE } from './config.js';
+import { API_BASE_URL, DEFAULT_REMOTE_API_BASE } from './config.js';
 import { ensureTmdbCredentialsLoaded } from './tmdbCredentials.js';
 
 const TV_PREFS_KEY = 'tvPreferences';
@@ -87,6 +87,9 @@ const handlers = {
   handleChange: null
 };
 
+const criticScoreStateById = new Map();
+const CRITIC_SCORE_TYPE = 'series';
+
 const STATUS_TONE_CLASSES = Object.freeze({
   info: 'movie-status--info',
   success: 'movie-status--success',
@@ -104,6 +107,17 @@ function escapeForAttribute(value) {
 }
 
 let loadAttemptCounter = 0;
+
+function buildTvApiUrl(path = '/api/tv') {
+  const trimmedPath = path.startsWith('/') ? path : `/${path}`;
+  const base = API_BASE_URL && API_BASE_URL !== 'null'
+    ? API_BASE_URL.replace(/\/$/, '')
+    : '';
+  if (!base) {
+    return trimmedPath;
+  }
+  return `${base}${trimmedPath}`;
+}
 
 function formatTimestamp(value) {
   if (!Number.isFinite(value)) return '';
@@ -128,6 +142,385 @@ function summarizeError(err) {
     return `Request failed with status ${err.status}`;
   }
   return 'Unknown error';
+}
+
+function getShowCacheKey(show) {
+  if (!show || typeof show !== 'object') return null;
+  if (show.id != null) {
+    return `tmdb:${show.id}`;
+  }
+  const imdbIdRaw =
+    (typeof show.imdb_id === 'string' && show.imdb_id) ||
+    (typeof show.imdbId === 'string' && show.imdbId) ||
+    '';
+  const imdbId = imdbIdRaw.trim();
+  if (imdbId) {
+    return `imdb:${imdbId}`;
+  }
+  const titleSource =
+    (typeof show.name === 'string' && show.name.trim()) ||
+    (typeof show.title === 'string' && show.title.trim()) ||
+    '';
+  if (!titleSource) return null;
+  const normalizedTitle = titleSource.toLowerCase();
+  const release = getReleaseDate(show);
+  let year = '';
+  if (release) {
+    const match = String(release).trim().match(/^(\d{4})/);
+    if (match) {
+      year = match[1];
+    }
+  }
+  return `title:${normalizedTitle}|year:${year}`;
+}
+
+function parseCriticPercent(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.endsWith('%') ? raw.slice(0, -1) : raw;
+  const num = Number.parseFloat(normalized);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseCriticScore(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function parseCriticImdb(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.toLowerCase() === 'n/a') return null;
+  const num = Number.parseFloat(raw);
+  if (!Number.isFinite(num)) return null;
+  const clamped = Math.max(0, Math.min(10, num));
+  return Math.round(clamped * 10) / 10;
+}
+
+function normalizeCriticScoresObject(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const ratings =
+    (raw.ratings && typeof raw.ratings === 'object' && raw.ratings) ||
+    raw;
+  const rottenTomatoes = parseCriticPercent(
+    ratings.rottenTomatoes ??
+      ratings.rotten_tomatoes ??
+      ratings.tomatoMeter ??
+      ratings.tomato_meter ??
+      ratings.rotten ??
+      ratings.tomato
+  );
+  const metacritic = parseCriticScore(
+    ratings.metacritic ?? ratings.Metascore ?? ratings.meta ?? raw.Metascore ?? raw.metacritic
+  );
+  const imdb = parseCriticImdb(
+    ratings.imdb ?? ratings.imdbRating ?? raw.imdbRating ?? ratings.imdb_score ?? ratings.imdbScore
+  );
+
+  const fetchedAtSource =
+    raw.fetchedAt ??
+    raw.fetched_at ??
+    (raw.metadata && raw.metadata.fetchedAt) ??
+    (raw.metadata && raw.metadata.fetched_at) ??
+    ratings.fetchedAt ??
+    ratings.fetched_at;
+  let fetchedAt = null;
+  if (typeof fetchedAtSource === 'string' && fetchedAtSource.trim()) {
+    const parsed = new Date(fetchedAtSource);
+    if (!Number.isNaN(parsed.getTime())) {
+      fetchedAt = parsed.toISOString();
+    }
+  } else if (typeof fetchedAtSource === 'number' && Number.isFinite(fetchedAtSource)) {
+    const parsed = new Date(fetchedAtSource);
+    if (!Number.isNaN(parsed.getTime())) {
+      fetchedAt = parsed.toISOString();
+    }
+  }
+  if (!fetchedAt) {
+    fetchedAt = new Date().toISOString();
+  }
+
+  const source =
+    (typeof raw.source === 'string' && raw.source.trim()) ||
+    (typeof raw.provider === 'string' && raw.provider.trim()) ||
+    'omdb';
+  const imdbIdValue =
+    (typeof raw.imdbId === 'string' && raw.imdbId.trim()) ||
+    (typeof raw.imdbID === 'string' && raw.imdbID.trim()) ||
+    null;
+  const titleValue =
+    (typeof raw.title === 'string' && raw.title.trim()) ||
+    (typeof raw.Title === 'string' && raw.Title.trim()) ||
+    null;
+  const yearValue =
+    (typeof raw.year === 'string' && raw.year.trim()) ||
+    (typeof raw.Year === 'string' && raw.Year.trim()) ||
+    null;
+  const typeValue =
+    (typeof raw.type === 'string' && raw.type.trim()) ||
+    CRITIC_SCORE_TYPE;
+
+  return {
+    rottenTomatoes: rottenTomatoes ?? null,
+    metacritic: metacritic ?? null,
+    imdb: imdb ?? null,
+    fetchedAt,
+    source,
+    imdbId: imdbIdValue,
+    title: titleValue,
+    year: yearValue,
+    type: typeValue
+  };
+}
+
+function normalizeCriticScoresResponse(data) {
+  if (!data || typeof data !== 'object') return null;
+  return normalizeCriticScoresObject({
+    ...data,
+    ratings: data.ratings && typeof data.ratings === 'object' ? data.ratings : data
+  });
+}
+
+function getCriticScoreState(show) {
+  if (!show) return { status: 'idle', data: null };
+  if (show.criticScoresState && show.criticScoresState.status) {
+    return show.criticScoresState;
+  }
+  const key = getShowCacheKey(show);
+  const existingScores = show.criticScores ? normalizeCriticScoresObject(show.criticScores) : null;
+  if (key && criticScoreStateById.has(key)) {
+    const state = criticScoreStateById.get(key);
+    if (state?.data && !existingScores) {
+      show.criticScores = state.data;
+    }
+    show.criticScoresState = state;
+    return state;
+  }
+  if (existingScores) {
+    const state = { status: 'loaded', data: existingScores };
+    if (key) {
+      criticScoreStateById.set(key, state);
+    }
+    show.criticScores = existingScores;
+    show.criticScoresState = state;
+    return state;
+  }
+  return { status: 'idle', data: null };
+}
+
+function setCriticScoreState(show, state) {
+  if (!show) return;
+  const key = getShowCacheKey(show);
+  const existing = key ? criticScoreStateById.get(key) : null;
+  const normalizedData = state?.data ? normalizeCriticScoresObject(state.data) : null;
+  const existingScores = show.criticScores ? normalizeCriticScoresObject(show.criticScores) : null;
+  const fallbackData = normalizedData || existing?.data || existingScores || null;
+  const nextState = {
+    status: state?.status || 'idle',
+    data: null
+  };
+
+  if (nextState.status === 'loaded') {
+    nextState.data = normalizedData || fallbackData;
+    if (nextState.data) {
+      show.criticScores = nextState.data;
+    }
+  } else if (nextState.status === 'loading') {
+    nextState.data = normalizedData || fallbackData;
+  } else if (nextState.status === 'error') {
+    nextState.data = fallbackData;
+  } else {
+    nextState.data = normalizedData || fallbackData;
+  }
+
+  if (state?.error) {
+    nextState.error = state.error;
+  }
+
+  show.criticScoresState = nextState;
+  if (key) {
+    criticScoreStateById.set(key, nextState);
+  }
+}
+
+function buildCriticLookup(show) {
+  if (!show) return null;
+  const imdbIdRaw =
+    (typeof show.imdb_id === 'string' && show.imdb_id) ||
+    (typeof show.imdbId === 'string' && show.imdbId) ||
+    '';
+  const imdbId = imdbIdRaw.trim();
+  const titleSource =
+    (typeof show.name === 'string' && show.name.trim()) ||
+    (typeof show.title === 'string' && show.title.trim()) ||
+    '';
+  const release = getReleaseDate(show);
+  let year = '';
+  if (release) {
+    const match = String(release).trim().match(/^(\d{4})/);
+    if (match) {
+      year = match[1];
+    }
+  }
+  if (!imdbId && !titleSource) {
+    return null;
+  }
+  return {
+    imdbId: imdbId || null,
+    title: titleSource || null,
+    year: year || null,
+    type: CRITIC_SCORE_TYPE
+  };
+}
+
+function canRequestCriticScores(show) {
+  const lookup = buildCriticLookup(show);
+  return Boolean(lookup && (lookup.imdbId || lookup.title));
+}
+
+function describeCriticScoresState(state) {
+  if (!state || state.status === 'idle') {
+    return 'Not fetched yet';
+  }
+  if (state.status === 'loading') {
+    return 'Fetching critic scores...';
+  }
+  if (state.status === 'error') {
+    return state.error || 'Critic scores unavailable';
+  }
+  if (state.status === 'loaded') {
+    const data = state.data || {};
+    const parts = [];
+    if (Number.isFinite(data.rottenTomatoes)) {
+      parts.push(`Rotten Tomatoes: ${Math.round(data.rottenTomatoes)}%`);
+    }
+    if (Number.isFinite(data.metacritic)) {
+      parts.push(`Metacritic: ${Math.round(data.metacritic)}`);
+    }
+    if (Number.isFinite(data.imdb)) {
+      parts.push(`IMDb: ${data.imdb.toFixed(1)}`);
+    }
+    if (!parts.length) {
+      return 'Critic scores unavailable';
+    }
+    return parts.join(' · ');
+  }
+  return 'Critic scores unavailable';
+}
+
+function getCriticScoresButtonLabel(state) {
+  if (!state || state.status === 'idle') return 'Fetch scores';
+  if (state.status === 'loading') return 'Fetching...';
+  if (state.status === 'loaded') return 'Refresh scores';
+  if (state.status === 'error') return 'Try again';
+  return 'Fetch scores';
+}
+
+async function requestCriticScores(show, { force = false } = {}) {
+  if (!show) return null;
+  const state = getCriticScoreState(show);
+  if (!force && (state.status === 'loading' || state.status === 'loaded')) {
+    return state.data || null;
+  }
+
+  const lookup = buildCriticLookup(show);
+  if (!lookup) {
+    setCriticScoreState(show, {
+      status: 'error',
+      error: 'Not enough information to fetch critic scores.'
+    });
+    refreshUI();
+    return null;
+  }
+
+  setCriticScoreState(show, {
+    status: 'loading',
+    data: state.data || null,
+    error: state.error
+  });
+  refreshUI();
+
+  try {
+    const params = new URLSearchParams();
+    if (lookup.imdbId) params.set('imdbId', lookup.imdbId);
+    if (lookup.title) params.set('title', lookup.title);
+    if (lookup.year) params.set('year', lookup.year);
+    if (lookup.type) params.set('type', lookup.type);
+    const url = `${buildTvApiUrl('/api/movie-ratings')}?${params.toString()}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData?.message) {
+          message = errorData.message;
+        } else if (errorData?.error) {
+          message = errorData.error;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+    const data = await response.json();
+    const normalized = normalizeCriticScoresResponse(data);
+    if (!normalized) {
+      setCriticScoreState(show, {
+        status: 'error',
+        error: 'Critic scores are unavailable for this title.'
+      });
+      refreshUI();
+      return null;
+    }
+    setCriticScoreState(show, { status: 'loaded', data: normalized });
+    refreshUI();
+    return normalized;
+  } catch (err) {
+    setCriticScoreState(show, {
+      status: 'error',
+      error: summarizeError(err)
+    });
+    refreshUI();
+    return null;
+  }
+}
+
+function appendCriticScoresMeta(metaList, show) {
+  if (!metaList || !show) return;
+  const item = document.createElement('li');
+  item.className = 'movie-meta__item movie-meta__critics';
+
+  const label = document.createElement('span');
+  label.className = 'movie-meta__label';
+  label.textContent = 'Critic scores:';
+  item.appendChild(label);
+
+  const state = getCriticScoreState(show);
+  const value = document.createElement('span');
+  value.className = 'movie-meta__value movie-meta__critics-value';
+  value.textContent = describeCriticScoresState(state);
+  item.appendChild(value);
+
+  if (canRequestCriticScores(show)) {
+    const button = makeActionButton(getCriticScoresButtonLabel(state), () => {
+      requestCriticScores(show, {
+        force: state.status === 'loaded' || state.status === 'error'
+      });
+    });
+    button.classList.add('movie-action--inline');
+    if (state.status === 'loading') {
+      button.disabled = true;
+    }
+    item.appendChild(button);
+  }
+
+  metaList.appendChild(item);
 }
 
 function updateFeedStatus(message, { tone = 'info', showSpinner = false } = {}) {
@@ -985,7 +1378,7 @@ async function callTmdbProxy(endpoint, params = {}) {
 }
 
 function summarizeMovie(movie) {
-  return {
+  const summary = {
     id: movie.id,
     title: movie.title || movie.name || '',
     release_date: movie.release_date || '',
@@ -997,6 +1390,13 @@ function summarizeMovie(movie) {
     topCast: getNameList(movie.topCast).slice(0, 5),
     directors: getNameList(movie.directors).slice(0, 3)
   };
+
+  const criticScores = normalizeCriticScoresObject(movie.criticScores);
+  if (criticScores) {
+    summary.criticScores = criticScores;
+  }
+
+  return summary;
 }
 
 function makeActionButton(label, handler) {
@@ -1856,6 +2256,7 @@ function renderFeed() {
     }
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
 
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
@@ -1990,6 +2391,7 @@ function renderInterestedList() {
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
     }
@@ -2138,6 +2540,7 @@ function renderWatchedList() {
     appendGenresMeta(metaList, movie);
     appendPeopleMeta(metaList, 'Director', movie.directors);
     appendPeopleMeta(metaList, 'Cast', movie.topCast);
+    appendCriticScoresMeta(metaList, movie);
     if (metaList.childNodes.length) {
       info.appendChild(metaList);
     }
@@ -2578,6 +2981,15 @@ function normalizeCachedMovie(movie) {
 
   if (!normalized.title && typeof normalized.name === 'string') {
     normalized.title = normalized.name;
+  }
+
+  if (normalized.criticScores) {
+    const scores = normalizeCriticScoresObject(normalized.criticScores);
+    if (scores) {
+      normalized.criticScores = scores;
+    } else {
+      delete normalized.criticScores;
+    }
   }
 
   return normalized;
