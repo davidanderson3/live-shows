@@ -1351,6 +1351,7 @@ button:hover {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1rem;
   align-items: stretch;
+  justify-items: start;
 }
 
 .show-card__media-column {
