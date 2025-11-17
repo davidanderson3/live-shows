@@ -12,6 +12,7 @@ export default defineConfig({
     }
   },
   test: {
+    include: ['tests/shows*.test.js'],
     exclude: ['node_modules/**', 'tests/e2e/**', '.git/**', 'functions/**']
   }
 });
