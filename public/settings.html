@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+    <title>Settings - Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container navbar-inner">
+        <div class="navbar-left"><a href="index.html" class="site-name">Dashboard</a></div>
+      <div class="navbar-right">
+        <span id="settingsEmail" class="user-email"></span>
+      </div>
+    </div>
+  </nav>
+
+    <section class="main-layout settings-container" style="padding:2em;">
+        <a href="index.html" class="settings-back-link">&larr; Back to Application</a>
+        <h2>Site Name</h2>
+        <input id="siteNameInput" type="text" style="margin-bottom:1em;" />
+        <h2>Tab Visibility</h2>
+        <div id="settingsTabsList"></div>
+      <div class="modal-actions" style="margin-top:1em;">
+        <button type="button" id="settingsSaveBtn">Save</button>
+        <button type="button" id="settingsResetBtn">Show All Tabs</button>
+      </div>
+    </section>
+
+      <nav id="bottomNav" class="bottom-nav">
+    <a href="settings.html" class="icon-btn" id="bottomSettingsBtn"><img src="assets/gear.svg" alt="Settings"></a>
+    <button type="button" id="bottomAddBtn" class="icon-btn circle-btn icon-button"><img src="assets/plus.svg" alt="Add" /></button>
+    <button type="button" id="bottomLogoutBtn" class="icon-btn"><img src="assets/sign-out.svg" alt="Sign Out" /></button>
+    </nav>
+
+    <!-- Modal shown when using the bottom add button -->
+    <div id="bottomAddModal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <h3 id="bottomAddTitle"></h3>
+        <div id="bottomAddOptions" class="rating-options"></div>
+        <input id="bottomAddText" type="text" placeholder="Description" style="display:none;margin-top:8px;width:100%;" />
+        <div class="modal-actions" style="margin-top:1em;">
+          <button type="button" id="bottomAddCancel">Cancel</button>
+          <button type="button" id="bottomAddSubmit">Add</button>
+        </div>
+      </div>
+    </div>
+
+      <script type="module" src="js/settingsPage.js"></script>
+    </body>
+    </html>

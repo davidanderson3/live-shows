@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+      <title>Daily Task Report – Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png">
+</head>
+
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar-inner">
+              <div class="navbar-left site-name">Dashboard</div>
+            <button class="menu-toggle" aria-label="Menu">&#9776;</button>
+            <div class="mobile-menu">
+                <div class="navbar-right">
+                    <button type="button" id="loginBtn">Sign In</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Daily Log Modal -->
+    <div id="appContainer">
+        <div id="dailyLogModal" class="modal" style="display:none;">
+            <div class="modal-content">
+                <h3>How are you doing today?</h3>
+                <p>Rate from 1 (worst) to 10 (best):</p>
+                <div id="dailyLogRating" class="rating-options"></div>
+                <textarea id="dailyLogText" placeholder="What would make it better?" rows="3"></textarea>
+                <div class="modal-actions">
+                    <button id="dailyLogSubmit">Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <section class="main-layout">
+        <div class="left-column">
+            <div class="report-panel">
+                <h2>Daily Task Completion Report</h2>
+                <table id="reportTable">
+                    <thead>
+                        <tr id="headerRow">
+                            <th>Task</th>
+                            <!-- Date columns will be injected here -->
+                        </tr>
+                    </thead>
+                    <tbody id="reportBody">
+                        <!-- Task rows will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <nav id="bottomNav" class="bottom-nav">
+        <a href="settings.html" class="icon-btn" id="bottomSettingsBtn"><img src="assets/gear.svg" alt="Settings" /></a>
+        <button type="button" id="bottomAddBtn" class="icon-btn circle-btn icon-button"><img src="assets/plus.svg" alt="Add" /></button>
+        <button type="button" id="bottomLogoutBtn" class="icon-btn"><img src="assets/sign-out.svg" alt="Sign Out" /></button>
+    </nav>
+
+    <!-- Modal shown when using the bottom add button -->
+    <div id="bottomAddModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h3 id="bottomAddTitle"></h3>
+            <div id="bottomAddOptions" class="rating-options"></div>
+            <input id="bottomAddText" type="text" placeholder="Description" style="display:none;margin-top:8px;width:100%;" />
+            <div class="modal-actions" style="margin-top:1em;">
+                <button type="button" id="bottomAddCancel">Cancel</button>
+                <button type="button" id="bottomAddSubmit">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script entry point -->
+    <script type="module" src="js/main.js"></script>
+  </body>
+
+</html>

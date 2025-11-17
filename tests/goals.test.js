@@ -11,8 +11,6 @@ vi.mock('../js/tasks.js', () => ({
   renderChildren: vi.fn()
 }));
 
-vi.mock('../js/calendarEvents.js', () => ({ createCalendarEvent: vi.fn() }));
-
 vi.mock('../js/helpers.js', () => ({
   loadDecisions: vi.fn(),
   saveDecisions: vi.fn(async () => { window.dispatchEvent(new window.Event('decisionsUpdated')); }),
@@ -354,4 +352,3 @@ describe('do later button', () => {
     expect(wrapper.classList.contains('do-later')).toBe(true);
   });
 });
-

@@ -11,8 +11,6 @@ vi.mock('../js/tasks.js', () => ({
   renderChildren: vi.fn()
 }));
 
-vi.mock('../js/calendarEvents.js', () => ({ createCalendarEvent: vi.fn() }));
-
 vi.mock('../js/helpers.js', async () => {
   const actual = await vi.importActual('../js/helpers.js');
   return {

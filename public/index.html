@@ -1,89 +1,110 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<html lang="en">
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/12.6.0/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/12.6.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/12.6.0/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+<head>
+  <meta charset="UTF-8" />
+    <title>Live Shows</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png">
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+</head>
 
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
+<body>
+  <section id="goalsView">
+    <div id="showsPanel" class="main-layout">
+      <div class="full-column">
+        <div class="shows-panel-header">
+          <h2>Live Events</h2>
+        </div>
+        <div class="shows-toolbar">
+          <div class="shows-tab-buttons" role="tablist" aria-label="Live music view">
+            <button type="button" id="showsTabAll" class="shows-tab-btn is-active" data-view="all" aria-selected="true">All</button>
+            <button type="button" id="showsTabSaved" class="shows-tab-btn" data-view="saved" aria-selected="false">Saved</button>
+          </div>
+          <div class="shows-toolbar__actions">
+            <div class="shows-toolbar__control shows-toolbar__control--distance">
+              <label for="showsDistanceSelect">Distance</label>
+              <select id="showsDistanceSelect">
+                <option value="10">10 mi</option>
+                <option value="25">25 mi</option>
+                <option value="50">50 mi</option>
+                <option value="75">75 mi</option>
+                <option value="100">100 mi</option>
+                <option value="125">125 mi</option>
+                <option value="150">150 mi</option>
+              </select>
+            </div>
+            <div class="shows-toolbar__control shows-toolbar__control--date">
+              <label for="showsDateInput">Through</label>
+              <div class="shows-date-picker">
+                <input type="date" id="showsDateInput" />
+              </div>
+            </div>
+            <div class="shows-toolbar__shortcut-group" role="group" aria-label="Quick action links">
+              <a href="#" class="shows-date-chip shows-toolbar__shortcut" data-days="0">Today</a>
+              <a href="#" class="shows-date-chip shows-toolbar__shortcut" data-days="7">Next 7 days</a>
+              <a href="#" id="eventbriteRefreshBtn" class="shows-discover-btn shows-toolbar__shortcut">Check for new events</a>
+            </div>
+          </div>
+          </div>
+          <div id="eventbriteList" class="decision-container"></div>
+        </div>
+      </div>
+  </section>
+
+  <nav id="bottomNav" class="bottom-nav">
+    <button type="button" id="bottomLogoutBtn" class="icon-btn"><img src="assets/sign-out.svg" alt="Sign Out"></button>
+  </nav>
+
+  <!-- Modal shown when using the bottom add button -->
+  <div id="bottomAddModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h3 id="bottomAddTitle"></h3>
+      <div id="bottomAddOptions" class="rating-options"></div>
+      <div id="bottomAddSection" class="rating-options" style="display:none;margin-top:8px;"></div>
+      <input id="bottomAddText" type="text" placeholder="Description" style="display:none;margin-top:8px;width:100%;" />
+      <div class="modal-actions" style="margin-top:1em;">
+        <button type="button" id="bottomAddCancel">Cancel</button>
+        <button type="button" id="bottomAddSubmit">Add</button>
+      </div>
     </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
-        }
-      });
-    </script>
-  </body>
+  </div>
+  <div id="contactModal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:400px;width:90%;max-height:80vh;overflow:auto;">
+      <h3>Contact Developer</h3>
+      <form id="contactForm">
+        <div style="margin-bottom:8px;">
+          <label>Name<br><input type="text" id="contactName" /></label>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label>Email<br><input type="email" id="contactEmailInput" required /></label>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label>Message<br><textarea id="contactMessage" required style="width:100%;height:100px;"></textarea></label>
+        </div>
+        <div class="modal-actions" style="margin-top:1em;">
+          <button type="submit">Send</button>
+          <button type="button" id="contactCancelBtn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/shows.js"></script>
+  <script type="module" src="js/weather.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</body>
 </html>

@@ -11,8 +11,6 @@ vi.mock('../js/tasks.js', () => ({
   renderChildren: vi.fn()
 }));
 
-vi.mock('../js/calendarEvents.js', () => ({ createCalendarEvent: vi.fn() }));
-
 // Simple localStorage mock for Node environment
 const storage = (() => {
   let store = {};

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Restore Backup</title>
+</head>
+
+<body>
+    <script type="module">
+        (async () => {
+            const key = prompt('Enter your backup key:');
+            if (key === null) return;
+            window.prompt = () => key;
+            try {
+                const mod = await import('./js/helpers.js');
+                await mod.restoreBackup();
+                alert('✅ Backup restored!');
+            } catch (e) {
+                alert('❌ Restore failed: ' + e);
+                console.error(e);
+            }
+        })();
+    </script>
+</body>
+
+</html>
