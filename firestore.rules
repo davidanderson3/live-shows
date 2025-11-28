@@ -63,6 +63,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // 7b) Shows preferences at /users/{uid}/shows/{docId}
+    match /users/{userId}/shows/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // 8) Asset history at /users/{uid}/assetHistory/{dayId}
     match /users/{userId}/assetHistory/{dayId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;

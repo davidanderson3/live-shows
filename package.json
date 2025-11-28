@@ -14,7 +14,8 @@
     "generate:geoscore": "node scripts/generateGeoscoreQuestions.js",
     "update:cities": "node scripts/populateCities.js",
     "prepare": "husky install",
-    "start": "YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-$(gcloud secrets versions access latest --secret=YOUTUBE_API_KEY 2>/dev/null | tr -d '\\n')} PORT=3004 node functions/backend/server.js"
+    "start": "YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-$(gcloud secrets versions access latest --secret=YOUTUBE_API_KEY 2>/dev/null | tr -d '\\n')} PORT=3004 node functions/backend/server.js",
+    "sync:public": "node scripts/syncPublic.js"
   },
   "keywords": [],
   "author": "",

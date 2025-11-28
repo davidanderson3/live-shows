@@ -5,7 +5,7 @@ export const PANELS = [
 ];
 
 export const PANEL_NAMES = {
-  showsPanel: 'Live Shows'
+  showsPanel: 'Live Events'
 };
 
 let tabsInitialized = false;

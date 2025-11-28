@@ -5,7 +5,7 @@ export const PANELS = [
 ];
 
 export const PANEL_NAMES = {
-  showsPanel: 'Live Shows'
+  showsPanel: 'Live Events'
 };
 
 let tabsInitialized = false;
@@ -55,7 +55,10 @@ export async function initTabs(user, db) {
       try { localStorage.setItem(LAST_PANEL_KEY, target); } catch {}
 
       // 3) update URL hash
-      history.pushState(null, '', `#${target}`);
+      const hash = target === 'showsPanel' && window.currentShowsView
+        ? `#${window.currentShowsView}`
+        : `#${target}`;
+      history.pushState(null, '', hash);
 
       // 4) init dynamic content
       if (target === 'showsPanel') {
@@ -66,10 +69,11 @@ export async function initTabs(user, db) {
 
   // initial activation from hash or default
   const hash    = window.location.hash.substring(1);
+  const hashTarget = hash === 'saved' ? 'showsPanel' : hash;
   let saved     = null;
   try { saved = localStorage.getItem(LAST_PANEL_KEY); } catch {}
-  const initial = (hash && panels.includes(hash))
-    ? hash
+  const initial = (hashTarget && panels.includes(hashTarget))
+    ? hashTarget
     : (saved && panels.includes(saved))
       ? saved
       : document.querySelector('.tab-button.active')?.dataset.target || panels[0];

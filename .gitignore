@@ -2,3 +2,5 @@ node_modules*
 .env
 firebase-debug.log
 functions/node_modules
+.runtimeconfig.json
+.runtimeconfig.json

@@ -22,6 +22,7 @@ const MAX_LOOKAHEAD_DAYS = 60;
 const MIN_LOOKAHEAD_DAYS = 0;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const AVAILABLE_RADIUS_OPTIONS = [10, 25, 50, 75, 100, 125, 150];
+const CACHE_TTL_MS = 8 * 60 * 60 * 1000;
 
 const elements = {
   status: null,
@@ -29,6 +30,7 @@ const elements = {
   refreshBtn: null,
   tabAll: null,
   tabSaved: null,
+  toolbarFilters: null,
   distanceSelect: null,
   dateInput: null,
   dateShortcuts: null
@@ -42,6 +44,9 @@ let hiddenGenres = new Set();
 let hiddenEventIds = new Set();
 let savedEvents = new Map();
 let currentView = 'all';
+if (typeof window !== 'undefined') {
+  window.currentShowsView = currentView;
+}
 const IGNORED_GENRE_NAMES = new Set(['undefined', 'music', 'event style']);
 let warnedAuthUnavailable = false;
 let searchPrefs = {
@@ -49,6 +54,7 @@ let searchPrefs = {
   days: DEFAULT_LOOKAHEAD_DAYS
 };
 let lastEventsSource = 'remote';
+let savedCalendarFilter = null;
 
 function cloneEvent(event) {
   try {
@@ -115,8 +121,15 @@ function persistSavedEvents() {
 }
 
 function getSavedEventsList() {
+  const getSortValue = entry => {
+    const eventStart = getEventStartTimestamp(entry.event);
+    if (Number.isFinite(eventStart)) return eventStart;
+    if (Number.isFinite(entry.savedAt)) return entry.savedAt;
+    return Number.POSITIVE_INFINITY;
+  };
+
   return Array.from(savedEvents.values())
-    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+    .sort((a, b) => getSortValue(a) - getSortValue(b))
     .map(entry => entry.event);
 }
 
@@ -142,6 +155,78 @@ function persistHiddenEventIds() {
     storage.setItem(SHOWS_HIDDEN_EVENTS_KEY, JSON.stringify(Array.from(hiddenEventIds)));
   } catch (err) {
     console.warn('Unable to store hidden events', err);
+  }
+}
+
+async function getShowsPrefsDoc() {
+  try {
+    const authModule = await import('./auth.js');
+    const user = authModule.getCurrentUser?.() || (await authModule.awaitAuthUser?.());
+    if (!user || !authModule.db) return null;
+    return authModule.db
+      .collection('users')
+      .doc(user.uid)
+      .collection('shows')
+      .doc('preferences');
+  } catch (err) {
+    console.warn('Unable to access auth/DB for shows', err);
+    return null;
+  }
+}
+
+async function persistShowsStateToDb(state = {}) {
+  const docRef = await getShowsPrefsDoc();
+  if (!docRef || typeof firebase === 'undefined' || !firebase.firestore) return false;
+  const savedMap = state.saved instanceof Map ? state.saved : savedEvents;
+  const hiddenSet = state.hidden instanceof Set ? state.hidden : hiddenEventIds;
+  if (!savedMap || !hiddenSet) return false;
+  try {
+    const payload = {
+      savedEvents: Array.from(savedMap.entries()).map(([id, entry]) => ({
+        id,
+        event: entry.event,
+        savedAt: entry.savedAt
+      })),
+      hiddenEventIds: Array.from(hiddenSet),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await docRef.set(payload, { merge: true });
+    return true;
+  } catch (err) {
+    console.warn('Unable to persist shows state to Firestore', err);
+    return false;
+  }
+}
+
+async function syncShowsStateFromDb() {
+  const docRef = await getShowsPrefsDoc();
+  if (!docRef) return;
+  try {
+    const snap = await docRef.get();
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    if (Array.isArray(data.savedEvents)) {
+      const map = new Map();
+      data.savedEvents.forEach(entry => {
+        if (!entry || typeof entry !== 'object') return;
+        const { id, event, savedAt } = entry;
+        if (!id || !event) return;
+        const normalized = typeof event === 'object' && event !== null ? { ...event } : event;
+        if (normalized && !normalized.id) normalized.id = String(id);
+        map.set(String(id), {
+          event: normalized,
+          savedAt: Number.isFinite(savedAt) ? savedAt : Date.now()
+        });
+      });
+      savedEvents = map;
+      persistSavedEvents();
+    }
+    if (Array.isArray(data.hiddenEventIds)) {
+      hiddenEventIds = new Set(data.hiddenEventIds.map(id => String(id)));
+      persistHiddenEventIds();
+    }
+  } catch (err) {
+    console.warn('Unable to sync shows state from Firestore', err);
   }
 }
 
@@ -220,13 +305,18 @@ function initDatePickerControl() {
       syncDatePickerValue(searchPrefs.days);
       return;
     }
+    const isExpandingWindow = nextDays > searchPrefs.days;
     if (nextDays === searchPrefs.days) {
       syncDatePickerValue(searchPrefs.days);
       return;
     }
     searchPrefs.days = nextDays;
     persistSearchPrefs();
-    discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days });
+    if (isExpandingWindow) {
+      discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days, forceRefresh: true });
+    } else {
+      renderWithPrefsAndMaybeRefresh();
+    }
   });
 
   if (elements.dateShortcuts) {
@@ -238,12 +328,14 @@ function initDatePickerControl() {
           return;
         }
         const nextDays = clampDays(shortcutDays);
-        const shouldFetch = nextDays !== searchPrefs.days;
+        const isExpandingWindow = nextDays > searchPrefs.days;
         searchPrefs.days = nextDays;
         persistSearchPrefs();
         syncDatePickerValue(searchPrefs.days);
-        if (shouldFetch) {
-          discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days });
+        if (isExpandingWindow) {
+          discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days, forceRefresh: true });
+        } else {
+          renderWithPrefsAndMaybeRefresh();
         }
       });
     });
@@ -427,12 +519,21 @@ function cacheElements() {
   elements.refreshBtn = document.getElementById('showsRefreshBtn');
   elements.tabAll = document.getElementById('showsTabAll');
   elements.tabSaved = document.getElementById('showsTabSaved');
+  elements.toolbarFilters = document.querySelector('.shows-toolbar__actions');
   elements.distanceSelect = document.getElementById('showsDistanceSelect');
   elements.dateInput = document.getElementById('showsDateInput');
   elements.dateShortcuts = document.querySelectorAll('.shows-date-chip');
   if (elements.refreshBtn && !elements.refreshBtn.dataset.defaultLabel) {
     elements.refreshBtn.dataset.defaultLabel =
       elements.refreshBtn.textContent || 'Check for new events';
+  }
+}
+
+function updateFilterVisibility(view) {
+  const hideFilters = view === 'saved';
+  if (elements.toolbarFilters) {
+    elements.toolbarFilters.style.display = hideFilters ? 'none' : '';
+    elements.toolbarFilters.setAttribute('aria-hidden', hideFilters ? 'true' : 'false');
   }
 }
 
@@ -502,6 +603,44 @@ function loadCachedEvents() {
   } catch (err) {
     console.warn('Unable to read cached live events', err);
     return null;
+  }
+}
+
+function isCacheFresh(cache) {
+  if (!cache || !Number.isFinite(cache.fetchedAt)) return false;
+  return Date.now() - cache.fetchedAt < CACHE_TTL_MS;
+}
+
+function cacheSatisfiesPrefs(cache, prefs) {
+  if (!cache || !prefs) return false;
+  const cachedRadius = Number.isFinite(cache.radiusMiles)
+    ? cache.radiusMiles
+    : DEFAULT_RADIUS_MILES;
+  const cachedDays = Number.isFinite(cache.days) ? cache.days : DEFAULT_LOOKAHEAD_DAYS;
+  const desiredRadius = clampRadius(prefs.radius);
+  const desiredDays = clampDays(prefs.days);
+  return cachedRadius >= desiredRadius && cachedDays >= desiredDays;
+}
+
+function renderWithPrefsAndMaybeRefresh() {
+  const cached = loadCachedEvents();
+  const cacheFresh =
+    cached && isCacheFresh(cached) && Array.isArray(cached.events) && cached.events.length;
+  const cacheCoversPrefs = cacheFresh && cacheSatisfiesPrefs(cached, searchPrefs);
+  if (cacheFresh && (!latestEvents || !latestEvents.length)) {
+    latestEvents = cached.events;
+  }
+  const workingEvents =
+    (latestEvents && latestEvents.length ? latestEvents : cacheFresh ? cached.events : []) || [];
+  const sourceLabel = cacheFresh || cached ? 'cache' : 'remote';
+  renderEvents(workingEvents, {
+    view: currentView,
+    source: sourceLabel,
+    radius: searchPrefs.radius,
+    days: searchPrefs.days
+  });
+  if (!cacheFresh || !cacheCoversPrefs) {
+    discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days });
   }
 }
 
@@ -592,6 +731,24 @@ function formatSearchEndDate(daysAhead) {
   return endDate.toLocaleDateString();
 }
 
+function filterEventsByPreferences(events, { radius, days }) {
+  const maxRadius = clampRadius(radius);
+  const maxDays = clampDays(days);
+  const today = getStartOfToday().getTime();
+  const searchEnd = today + (maxDays + 1) * MS_PER_DAY - 1;
+  return (events || []).filter(event => {
+    const timestamp = getEventStartTimestamp(event);
+    if (timestamp != null && timestamp > searchEnd) {
+      return false;
+    }
+    const distance = typeof event?.distance === 'number' ? event.distance : null;
+    if (distance != null && distance > maxRadius) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function buildDiscoveryStatusText(options = {}) {
   const radius = clampRadius(
     options.radius != null ? options.radius : searchPrefs?.radius ?? DEFAULT_RADIUS_MILES
@@ -622,28 +779,62 @@ function buildEventsSummaryText(source, count, timestamp, view) {
   return '';
 }
 
-function createEventsSummaryElement(source, count, timestamp, view, options = {}) {
-  const discoveryText =
-    view === 'saved' ? '' : buildDiscoveryStatusText(options);
-  const countText = buildEventsSummaryText(source, count, timestamp, view);
-  const lines = [];
-  if (discoveryText) {
-    lines.push(discoveryText);
-  }
-  if (countText) {
-    lines.push(countText);
-  }
-  const message = lines.join(' • ');
-  if (!message) return null;
-  const note = document.createElement('p');
-  note.className = 'shows-list-summary';
-  note.textContent = message;
-  return note;
+function createEventsSummaryElement() {
+  return null;
 }
 
 function clearList() {
   if (!elements.list) return;
   elements.list.innerHTML = '';
+}
+
+function flashSavedNotice() {
+  const message = 'Saved! Added to your saved events.';
+  setStatus(message);
+  setTimeout(() => {
+    if (elements.status && elements.status.textContent === message) {
+      setStatus('');
+    }
+  }, 1500);
+}
+
+function showSavedToast() {
+  if (typeof document === 'undefined') return;
+  let toast = document.querySelector('.shows-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'shows-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = 'Saved!';
+  toast.classList.add('is-visible');
+  setTimeout(() => toast.classList.remove('is-visible'), 1200);
+}
+
+function ensureDistanceOriginLabel() {
+  if (!elements.distanceSelect) return;
+  if (elements.distanceSelect.nextElementSibling?.classList?.contains('shows-distance-origin')) {
+    elements.distanceOrigin = elements.distanceSelect.nextElementSibling;
+    return;
+  }
+  const span = document.createElement('span');
+  span.className = 'shows-distance-origin';
+  elements.distanceSelect.insertAdjacentElement('afterend', span);
+  elements.distanceOrigin = span;
+}
+
+function updateDistanceOriginLabel(events) {
+  if (!elements.distanceOrigin) return;
+  let city = '';
+  for (const event of events || []) {
+    const c = event?.venue?.address?.city;
+    const region = event?.venue?.address?.region;
+    if (c) {
+      city = region ? `${c}, ${region}` : c;
+      break;
+    }
+  }
+  elements.distanceOrigin.textContent = city ? `from ${city}` : '';
 }
 
 function formatEventDate(start) {
@@ -655,10 +846,12 @@ function formatEventDate(start) {
     return start.local || start.utc || '';
   }
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    const formatted = new Intl.DateTimeFormat(undefined, {
       dateStyle: 'medium',
       timeStyle: 'short'
     }).format(date);
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
+    return `${formatted} (${weekday})`;
   } catch (err) {
     console.warn('Unable to format event date', err);
     return date.toLocaleString();
@@ -860,6 +1053,11 @@ function createArtistLinkRow(event) {
   const searchQuery = primaryName;
   const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
   const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(primaryName)}`;
+  const spotifyDeepLink = `spotify:search:${encodeURIComponent(primaryName)}`;
+
+  const isMobile =
+    typeof navigator !== 'undefined' &&
+    /iphone|ipad|ipod|android|mobile/i.test(navigator.userAgent || '');
 
   const openPopup = (href, name) => {
     if (typeof window === 'undefined' || typeof window.open !== 'function') {
@@ -885,9 +1083,10 @@ function createArtistLinkRow(event) {
     {
       label: 'Search on Spotify',
       url: `${spotifyUrl}?autoplay=true`,
-      name: 'shows-spotify-search'
+      name: 'shows-spotify-search',
+      deepLink: spotifyDeepLink
     }
-  ].forEach(({ label, url, name }, index) => {
+  ].forEach(({ label, url, name, deepLink }, index) => {
     const link = document.createElement('a');
     link.className = 'show-card__external-link';
     link.href = url;
@@ -895,6 +1094,18 @@ function createArtistLinkRow(event) {
     link.textContent = label;
     link.addEventListener('click', event => {
       event.preventDefault();
+      // On mobile, attempt to open the Spotify app directly; fall back to web search.
+      if (name === 'shows-spotify-search' && isMobile && deepLink) {
+        try {
+          window.location.href = deepLink;
+          setTimeout(() => {
+            window.location.href = url;
+          }, 1200);
+        } catch {
+          window.location.href = url;
+        }
+        return;
+      }
       openPopup(url, name);
     });
     wrapper.appendChild(link);
@@ -985,37 +1196,69 @@ function createEventCard(event, options = {}) {
   actionsRow.className = 'show-card__actions';
 
   const eventId = getEventId(event);
+  const isSavedCard = options.saved || savedEvents.has(eventId);
+  if (isSavedCard) {
+    card.classList.add('show-card--saved');
+  }
 
-  const saveBtn = document.createElement('button');
-  saveBtn.type = 'button';
+  const saveBtn = document.createElement('a');
+  saveBtn.href = '#';
+  saveBtn.setAttribute('role', 'button');
   saveBtn.className = 'show-card__button';
   updateSavedButtonState(saveBtn, eventId);
-  saveBtn.addEventListener('click', () => {
-    if (savedEvents.has(eventId)) {
-      savedEvents.delete(eventId);
-      persistSavedEvents();
-      updateSavedButtonState(saveBtn, eventId);
-      if (currentView === 'saved') {
-        renderEvents(null, { view: 'saved' });
+  saveBtn.addEventListener('click', e => {
+    e.preventDefault();
+    (async () => {
+      if (savedEvents.has(eventId)) {
+        savedEvents.delete(eventId);
+        persistSavedEvents();
+        const ok = await persistShowsStateToDb();
+        if (!ok) setStatus('Unable to save change to cloud.', 'error');
+        updateSavedButtonState(saveBtn, eventId);
+        renderEvents(null, { view: currentView });
+        return;
       }
-    } else {
       const savedCopy = cloneEvent(event);
       if (!savedCopy.id) {
         savedCopy.id = eventId;
       }
       savedEvents.set(eventId, { event: savedCopy, savedAt: Date.now() });
       persistSavedEvents();
+      const ok = await persistShowsStateToDb();
+      if (!ok) setStatus('Unable to save change to cloud.', 'error');
       updateSavedButtonState(saveBtn, eventId);
-    }
+      flashSavedNotice();
+      showSavedToast();
+      const msg = card.querySelector('.show-card__saved-message');
+      if (msg) {
+        msg.style.display = 'inline-flex';
+        msg.classList.add('is-visible');
+        requestAnimationFrame(() => msg.classList.add('is-showing'));
+        setTimeout(() => {
+          msg.classList.remove('is-showing');
+          msg.classList.remove('is-visible');
+          msg.style.display = 'none';
+        }, 1500);
+      }
+      if (currentView !== 'saved') {
+        card.classList.add('show-card--saving');
+      }
+      setTimeout(() => {
+        renderEvents(null, { view: currentView });
+      }, 0);
+    })();
   });
 
-  const hideBtn = document.createElement('button');
-  hideBtn.type = 'button';
+  const hideBtn = document.createElement('a');
+  hideBtn.href = '#';
+  hideBtn.setAttribute('role', 'button');
   hideBtn.className = 'show-card__button show-card__button--secondary show-card__button--danger';
   hideBtn.textContent = 'Hide';
-  hideBtn.addEventListener('click', () => {
+  hideBtn.addEventListener('click', e => {
+    e.preventDefault();
     hiddenEventIds.add(eventId);
     persistHiddenEventIds();
+    persistShowsStateToDb();
     if (savedEvents.has(eventId)) {
       savedEvents.delete(eventId);
       persistSavedEvents();
@@ -1033,9 +1276,21 @@ function createEventCard(event, options = {}) {
     cta.setAttribute('aria-disabled', 'true');
     cta.classList.add('show-card__button--disabled');
   }
-  cta.textContent = 'Purchase Tickets';
+  cta.textContent = 'Tickets';
 
   actionsRow.append(saveBtn, hideBtn, cta);
+  [saveBtn, hideBtn, cta].forEach(el => {
+    if (el && el.style) {
+      el.style.cssText = '';
+      el.removeAttribute('style');
+    }
+  });
+
+  const savedMessage = document.createElement('span');
+  savedMessage.className = 'show-card__saved-message';
+  savedMessage.textContent = 'Saved!';
+  savedMessage.style.display = 'none';
+  card.appendChild(savedMessage);
   const gallery = renderEventImages(event);
   const grid = document.createElement('div');
   grid.className = 'show-card__grid';
@@ -1247,15 +1502,138 @@ function renderGenreFilters(events, options = {}) {
   return panel;
 }
 
+function createSavedCalendars(events) {
+  if (!Array.isArray(events) || !events.length) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const months = new Map();
+
+  const addMonth = (year, month) => {
+    const key = `${year}-${month}`;
+    if (!months.has(key)) {
+      months.set(key, {
+        year,
+        month,
+        dayCounts: new Map()
+      });
+    }
+    return months.get(key);
+  };
+
+  for (let i = 0; i < 3; i += 1) {
+    const dt = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    addMonth(dt.getFullYear(), dt.getMonth());
+  }
+
+  events.forEach(event => {
+    const ts = getEventStartTimestamp(event);
+    if (!Number.isFinite(ts)) return;
+    const d = new Date(ts);
+    if (d.getTime() < today.getTime()) return;
+    const monthData = addMonth(d.getFullYear(), d.getMonth());
+    const day = d.getDate();
+    monthData.dayCounts.set(day, (monthData.dayCounts.get(day) || 0) + 1);
+  });
+
+  const sortedMonths = Array.from(months.values()).sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
+
+  const container = document.createElement('aside');
+  container.className = 'shows-saved-calendar';
+
+  const header = document.createElement('div');
+  header.className = 'shows-saved-calendar__header';
+  const title = document.createElement('h3');
+  title.textContent = 'Saved dates';
+  header.append(title);
+  container.appendChild(header);
+
+  sortedMonths.forEach(monthData => {
+    const monthStart = new Date(monthData.year, monthData.month, 1);
+    const monthName = new Intl.DateTimeFormat(undefined, { month: 'long' }).format(monthStart);
+    const daysInMonth = new Date(monthData.year, monthData.month + 1, 0).getDate();
+
+    const monthBlock = document.createElement('div');
+    monthBlock.className = 'shows-saved-calendar__month';
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'shows-saved-calendar__month-title';
+    subtitle.textContent = `${monthName} ${monthData.year}`;
+    monthBlock.appendChild(subtitle);
+
+    const grid = document.createElement('div');
+    grid.className = 'shows-saved-calendar__grid';
+
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    weekdays.forEach(label => {
+      const cell = document.createElement('div');
+      cell.className = 'shows-saved-calendar__weekday';
+      cell.textContent = label;
+      grid.appendChild(cell);
+    });
+
+    const startOffset = monthStart.getDay();
+    for (let i = 0; i < startOffset; i += 1) {
+      const pad = document.createElement('div');
+      pad.className = 'shows-saved-calendar__cell shows-saved-calendar__cell--empty';
+      grid.appendChild(pad);
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const cell = document.createElement('div');
+      cell.className = 'shows-saved-calendar__cell';
+      cell.textContent = String(day);
+      const hasEvents = monthData.dayCounts.has(day);
+      if (hasEvents) {
+        cell.classList.add('shows-saved-calendar__cell--active');
+        cell.setAttribute('data-count', String(monthData.dayCounts.get(day)));
+        cell.addEventListener('click', () => {
+          savedCalendarFilter = {
+            year: monthData.year,
+            month: monthData.month,
+            day
+          };
+          renderEvents(null, { view: 'saved', scrollToFirstOnMobile: true });
+        });
+      } else {
+        cell.classList.add('shows-saved-calendar__cell--disabled');
+      }
+      if (
+        savedCalendarFilter &&
+        savedCalendarFilter.year === monthData.year &&
+        savedCalendarFilter.month === monthData.month &&
+        savedCalendarFilter.day === day
+      ) {
+        cell.classList.add('shows-saved-calendar__cell--selected');
+      }
+      grid.appendChild(cell);
+    }
+
+    monthBlock.appendChild(grid);
+    container.appendChild(monthBlock);
+  });
+
+  return container;
+}
+
 function renderEvents(events, options = {}) {
   if (!elements.list) return;
   const view = options.view || currentView || 'all';
   currentView = view;
+  if (typeof window !== 'undefined') {
+    window.currentShowsView = view;
+    const hash = view === 'saved' ? '#saved' : '#events';
+    history.replaceState(null, '', hash);
+  }
   const renderOptions = { ...options, view };
   const source = options.source || lastEventsSource || 'remote';
   lastEventsSource = source;
   renderOptions.source = source;
   updateViewTabs(view);
+  updateFilterVisibility(view);
 
   clearList();
   setLoading(true);
@@ -1274,9 +1652,41 @@ function renderEvents(events, options = {}) {
   if (!Array.isArray(workingEvents)) {
     workingEvents = [];
   }
+  const effectiveRadius = clampRadius(renderOptions.radius ?? searchPrefs.radius);
+  const effectiveDays = clampDays(renderOptions.days ?? searchPrefs.days);
   const upcomingEvents = workingEvents.filter(isEventInFuture);
 
-  const visibleEvents = upcomingEvents.filter(event => !hiddenEventIds.has(getEventId(event)));
+  const preferenceFiltered = filterEventsByPreferences(upcomingEvents, {
+    radius: effectiveRadius,
+    days: effectiveDays
+  });
+
+  let visibleEvents = preferenceFiltered.filter(event => !hiddenEventIds.has(getEventId(event)));
+  if (view === 'saved' && savedCalendarFilter) {
+    visibleEvents = [
+      ...visibleEvents.filter(event => {
+        const ts = getEventStartTimestamp(event);
+        if (!Number.isFinite(ts)) return false;
+        const d = new Date(ts);
+        return (
+          d.getFullYear() === savedCalendarFilter.year &&
+          d.getMonth() === savedCalendarFilter.month &&
+          d.getDate() === savedCalendarFilter.day
+        );
+      }),
+      ...visibleEvents.filter(event => {
+        const ts = getEventStartTimestamp(event);
+        if (!Number.isFinite(ts)) return false;
+        const d = new Date(ts);
+        return !(
+          d.getFullYear() === savedCalendarFilter.year &&
+          d.getMonth() === savedCalendarFilter.month &&
+          d.getDate() === savedCalendarFilter.day
+        );
+      })
+    ];
+  }
+  updateDistanceOriginLabel(visibleEvents);
 
   if (!visibleEvents.length) {
     setLoading(false);
@@ -1312,18 +1722,21 @@ function renderEvents(events, options = {}) {
   listColumn.className = 'shows-results__list';
   layout.appendChild(listColumn);
 
-  const filtersPanel = renderGenreFilters(visibleEvents, renderOptions);
+  const shouldRenderFilters = view === 'all';
+  const filtersPanel = shouldRenderFilters ? renderGenreFilters(visibleEvents, renderOptions) : null;
   if (filtersPanel) {
     layout.appendChild(filtersPanel);
   }
 
-  const filteredEvents = visibleEvents.filter(event => {
-    if (activeGenreFilters === null) return true;
-    if (activeGenreFilters.size === 0) return false;
-    const eventGenres = getEventGenres(event);
-    if (!eventGenres.length) return false;
-    return eventGenres.some(genre => activeGenreFilters.has(genre));
-  });
+  const filteredEvents = shouldRenderFilters
+    ? visibleEvents.filter(event => {
+        if (activeGenreFilters === null) return true;
+        if (activeGenreFilters.size === 0) return false;
+        const eventGenres = getEventGenres(event);
+        if (!eventGenres.length) return false;
+        return eventGenres.some(genre => activeGenreFilters.has(genre));
+      })
+    : visibleEvents;
 
   setLoading(false);
 
@@ -1344,9 +1757,50 @@ function renderEvents(events, options = {}) {
     renderOptions
   );
 
-  filteredEvents.forEach(event => listColumn.appendChild(createEventCard(event, renderOptions)));
+  const savedList = [];
+  const unsavedList = [];
+  filteredEvents.forEach(event => {
+    const id = getEventId(event);
+    if (savedEvents.has(id)) {
+      savedList.push(event);
+    } else {
+      unsavedList.push(event);
+    }
+  });
 
-  if (!filtersPanel) {
+  const appendCards = (eventsToRender, opts = {}) => {
+    eventsToRender.forEach(event =>
+      listColumn.appendChild(
+        createEventCard(event, { ...renderOptions, saved: opts.saved === true })
+      )
+    );
+  };
+
+  if (view === 'saved') {
+    appendCards(filteredEvents, { saved: true });
+  } else {
+    appendCards(unsavedList, { saved: false });
+    if (savedList.length) {
+      const savedSection = document.createElement('div');
+      savedSection.className = 'shows-section-saved';
+      const heading = document.createElement('h3');
+      heading.textContent = 'Saved events';
+      savedSection.appendChild(heading);
+      savedList.forEach(event =>
+        savedSection.appendChild(createEventCard(event, { ...renderOptions, saved: true }))
+      );
+      layout.appendChild(savedSection);
+    }
+  }
+
+  if (view === 'saved') {
+    const calendar = createSavedCalendars(visibleEvents);
+    if (calendar) {
+      layout.appendChild(calendar);
+    }
+  }
+
+  if (shouldRenderFilters && !filtersPanel) {
     const noFiltersNotice = document.createElement('div');
     noFiltersNotice.className = 'shows-filters-empty';
     noFiltersNotice.textContent = 'No genre tags were provided for these shows.';
@@ -1364,6 +1818,19 @@ function renderEvents(events, options = {}) {
     listColumn.insertBefore(summary, listColumn.firstChild);
   }
   elements.list.appendChild(layout);
+
+  if (
+    view === 'saved' &&
+    renderOptions.scrollToFirstOnMobile &&
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(max-width: 640px)').matches
+  ) {
+    const firstCard = layout.querySelector('.show-card');
+    if (firstCard && typeof firstCard.scrollIntoView === 'function') {
+      firstCard.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    }
+  }
 }
 
 function requestLocation() {
@@ -1426,6 +1893,22 @@ async function discoverNewEvents(options = {}) {
     elements.distanceSelect.value = String(desiredRadius);
   }
   syncDatePickerValue(desiredDays);
+
+  const cached = loadCachedEvents();
+  if (!options.forceRefresh && cached && isCacheFresh(cached) && Array.isArray(cached.events) && cached.events.length) {
+    latestEvents = cached.events;
+    activeGenreFilters = null;
+    renderEvents(cached.events, {
+      view: currentView,
+      radius: desiredRadius,
+      days: desiredDays,
+      source: 'cache'
+    });
+    setRefreshLoading(false);
+    isDiscovering = false;
+    return;
+  }
+
   try {
     const location = await requestLocation();
     if (!location) {
@@ -1471,6 +1954,7 @@ async function discoverNewEvents(options = {}) {
     }
     const data = await res.json();
     const events = Array.isArray(data?.events) ? data.events : [];
+    const noNewEvents = events.length === 0;
     latestEvents = events;
     if (savedEvents.size) {
       let updated = false;
@@ -1488,6 +1972,7 @@ async function discoverNewEvents(options = {}) {
       });
       if (updated) {
         persistSavedEvents();
+        persistShowsStateToDb();
       }
     }
     saveEventsToCache(events, {
@@ -1503,6 +1988,10 @@ async function discoverNewEvents(options = {}) {
       days: desiredDays,
       source: 'remote'
     });
+    if (noNewEvents) {
+      setStatus('No events to review. Expand filters to see more events.');
+      setTimeout(() => setStatus(''), 2000);
+    }
   } catch (err) {
     console.error('Unable to load live events', err);
     setStatus(interpretShowsError(err), 'error');
@@ -1521,9 +2010,11 @@ export async function initShowsPanel(options = {}) {
 
   savedEvents = loadSavedEvents();
   hiddenEventIds = loadHiddenEventIds();
+  await syncShowsStateFromDb();
   searchPrefs = loadSearchPrefs();
 
   cacheElements();
+  ensureDistanceOriginLabel();
   setLoading(true);
   setStatus('Checking for shows in your area...');
   hiddenGenres = loadHiddenGenres();
@@ -1540,9 +2031,14 @@ export async function initShowsPanel(options = {}) {
     elements.distanceSelect.addEventListener('change', () => {
       const nextRadius = clampRadius(elements.distanceSelect.value);
       if (nextRadius === searchPrefs.radius) return;
+      const isExpanding = nextRadius > searchPrefs.radius;
       searchPrefs.radius = nextRadius;
       persistSearchPrefs();
-      discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days });
+      if (isExpanding) {
+        discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days, forceRefresh: true });
+      } else {
+        renderWithPrefsAndMaybeRefresh();
+      }
     });
   }
 
@@ -1569,7 +2065,15 @@ export async function initShowsPanel(options = {}) {
   }
   syncDatePickerValue(searchPrefs.days);
 
+  const hashView = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : '';
+  if (hashView === 'saved') {
+    currentView = 'saved';
+  } else if (hashView === 'events') {
+    currentView = 'all';
+  }
+
   const cached = loadCachedEvents();
+  const cacheFresh = cached && isCacheFresh(cached);
   if (cached && Array.isArray(cached.events) && cached.events.length) {
     latestEvents = cached.events;
     if (cached.radiusMiles) {
@@ -1584,21 +2088,22 @@ export async function initShowsPanel(options = {}) {
     }
     syncDatePickerValue(searchPrefs.days);
     const renderOptions = {
-      radius: cached.radiusMiles,
-      days: cached.days,
+      radius: searchPrefs.radius,
+      days: searchPrefs.days,
       view: currentView,
       ...options
     };
     renderOptions.source = renderOptions.source || 'cache';
     renderEvents(cached.events, renderOptions);
-  } else {
+  }
+  if (!cacheFresh || !cached || !Array.isArray(cached.events) || !cached.events.length) {
     await discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days, ...options });
   }
 
   if (elements.refreshBtn) {
     elements.refreshBtn.addEventListener('click', event => {
       event.preventDefault();
-      discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days });
+      discoverNewEvents({ radius: searchPrefs.radius, days: searchPrefs.days, forceRefresh: true });
     });
   }
 }
