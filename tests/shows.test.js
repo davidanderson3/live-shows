@@ -82,7 +82,7 @@ describe('initShowsPanel (Ticketmaster)', () => {
     global.window = dom.window;
     global.document = dom.window.document;
 
-    global.navigator = {
+    const geoMock = {
       geolocation: {
         getCurrentPosition: vi.fn(success => {
           success({
@@ -91,6 +91,14 @@ describe('initShowsPanel (Ticketmaster)', () => {
         })
       }
     };
+    Object.defineProperty(global, 'navigator', {
+      value: geoMock,
+      configurable: true
+    });
+    Object.defineProperty(dom.window, 'navigator', {
+      value: geoMock,
+      configurable: true
+    });
 
     global.fetch = vi.fn().mockResolvedValue(createFetchResponse());
     dom.window.fetch = global.fetch;
